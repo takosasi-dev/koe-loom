@@ -16,4 +16,5 @@ inline juce::File settingsFile() { return dataDir().getChildFile ("settings.json
 inline juce::File presetsDir() { return dataDir().getChildFile ("presets"); }
 inline juce::File soundboardFile() { return dataDir().getChildFile ("soundboard.json"); }
 inline juce::File logsDir() { return dataDir().getChildFile ("logs"); }
+inline juce::File themesDir() { return dataDir().getChildFile ("themes"); } // user themes (INTERFACES.md §8)
 } // namespace koe::paths

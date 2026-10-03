@@ -2,9 +2,11 @@
 
 #include "Core/Paths.h"
 #include "UI/Screens.h"
+#include "UI/ThemeLibrary.h"
 #include "UI/main/GuideTour.h"
 #include "UI/main/Panels.h"
 #include "UI/main/Shell.h"
+#include "UI/main/VoicePage.h"
 #include "UI/main/VoiceView.h"
 
 #include <juce_audio_formats/juce_audio_formats.h>
@@ -38,6 +40,16 @@ struct MainComponent::Impl : private juce::ChangeListener, private juce::Timer
             Theme::setVariant (s.accentColour, s.backgroundTone); // the saved 外観 choice, before anything is built
             if (auto* lnf = dynamic_cast<KoeLookAndFeel*> (&juce::LookAndFeel::getDefaultLookAndFeel())) lnf->refreshColours();
         }
+        if (const auto& s = c.getSettings(); s.themeId.isNotEmpty() && s.themeId != Theme::themeId())
+        {
+            // the saved 配色 too, so the pages are built once in it (a broken theme is reported by applyTheme())
+            juce::String why;
+            if (const auto t = ThemeLibrary::resolve (s.themeId, why))
+            {
+                Theme::setPalette (s.themeId, t->colours, t->dark);
+                if (auto* lnf = dynamic_cast<KoeLookAndFeel*> (&juce::LookAndFeel::getDefaultLookAndFeel())) lnf->refreshColours();
+            }
+        }
         buildPages();
         owner.addChildComponent (toast);
         owner.addChildComponent (overlay);
@@ -45,12 +57,13 @@ struct MainComponent::Impl : private juce::ChangeListener, private juce::Timer
         toast.onChanged = [this] { layoutToast(); };
         overlay.onClosed = [this] { if (tour != nullptr && tour->isVisible()) tour->toFront (true); };
         c.addChangeListener (this);
-        startTimerHz (30); // F-08-1
+        startTimerHz (timerHz); // F-08-1; S-03 「メーターの更新」 may change it
     }
 
     void buildPages()
     {
-        voice = std::make_unique<VoiceView> (c, owner);
+        voice = makeVoicePage (c.getSettings().layoutStyle, c, owner);
+        builtLayout = c.getSettings().layoutStyle;
         sound = std::make_unique<SoundboardView> (c, owner);
         settings = std::make_unique<SettingsView> (c, owner);
         soundBottom = std::make_unique<BottomBar> (c, owner, false);
@@ -74,14 +87,21 @@ struct MainComponent::Impl : private juce::ChangeListener, private juce::Timer
         const int pad = compact ? Theme::space2 + Theme::space1 : Theme::space3;
         const int gap = compact ? Theme::space2 : Theme::space3;
         header.setCompact (compact);
+        // a voice page with its own header (案 C Mono) gets the window edge to edge, below the banners
+        const bool pageHeader = page == Navigator::Page::voice && voice->ownsHeader();
+        header.setVisible (! pageHeader);
         auto inner = r.reduced (pad);
-        header.setBounds (inner.removeFromTop (compact ? Theme::pillH : Theme::headerH));
-        inner.removeFromTop (gap);
+        if (! pageHeader)
+        {
+            header.setBounds (inner.removeFromTop (compact ? Theme::pillH : Theme::headerH));
+            inner.removeFromTop (gap);
+        }
         const int nh = notices.preferredHeight();
         notices.setBounds (inner.removeFromTop (nh));
         if (nh > 0) inner.removeFromTop (gap);
         voice->setCompact (compact);
         for (auto* p : pages()) p->setBounds (inner);
+        if (pageHeader) voice->setBounds (r.withTrimmedTop (nh > 0 ? pad + nh + gap : 0));
         soundBottom->setCompact (compact);
         auto sb = inner;
         soundBottom->setBounds (sb.removeFromBottom (BottomBar::height (compact)));
@@ -90,7 +110,9 @@ struct MainComponent::Impl : private juce::ChangeListener, private juce::Timer
         if (tour != nullptr && tour->isVisible())
         {
             tour->setBounds (r);
-            tour->relayout(); // the parts moved (banners, resize): follow them, keep clear of banners (E-31)
+            // the parts moved (banners, resize): follow them, keep clear of banners (E-31). Not while the tour itself is
+            // switching pages (案 C's header hides on the voice page): relocating the old step would navigate back to its page
+            if (! switchingPage) tour->relayout();
         }
         layoutToast();
     }
@@ -116,10 +138,39 @@ struct MainComponent::Impl : private juce::ChangeListener, private juce::Timer
         soundBottom->setVisible (p == Navigator::Page::soundboard);
         settings->setVisible (p == Navigator::Page::settings);
         header.setPage (p);
+        // the header hides on a voice page that draws its own (案 C Mono); only then is a new layout needed
+        // (a tour that switches pages places itself afterwards: layout() does not relocate it meanwhile)
+        if (header.isVisible() == (p == Navigator::Page::voice && voice->ownsHeader()))
+        {
+            const juce::ScopedValueSetter<bool> switching (switchingPage, true);
+            layout();
+        }
+    }
+
+    /** S-03 外観 detailed settings that live outside the settings screen (INTERFACES.md §7.3). */
+    void applyScreenSettings()
+    {
+        const auto& s = c.getSettings();
+        auto& p = Theme::prefs();
+        p.animations = s.animations;
+        p.meterFps = s.meterFps >= 60 ? 60 : 30;
+        p.peakHoldMs = s.meterPeakHoldMs;
+        p.knobSensitivity = s.knobSensitivity;
+        p.knobWheel = s.knobWheel;
+        tooltips.setMillisecondsBeforeTipAppears (juce::roundToInt (s.tooltipDelayMs));
+        if (timerHz != p.meterFps)
+        {
+            timerHz = p.meterFps;
+            startTimerHz (timerHz);
+        }
+        const float scale = uiScaleFactor (s);
+        if (! juce::approximatelyEqual (juce::Desktop::getInstance().getGlobalScaleFactor(), scale))
+            juce::Desktop::getInstance().setGlobalScaleFactor (scale); // window sizes are logical: the minimum scales too
     }
 
     void refresh()
     {
+        applyScreenSettings();
         applyTheme();
         header.refresh();
         notices.setNotices (c.getNotices());
@@ -132,9 +183,23 @@ struct MainComponent::Impl : private juce::ChangeListener, private juce::Timer
     void applyTheme()
     {
         const auto& s = c.getSettings();
-        if (s.darkTheme == Theme::isDark() && s.accentColour == Theme::accent() && s.backgroundTone == Theme::tone()) return;
+        // 「配色」 (Settings::themeId, INTERFACES.md §8.4): "" = Studio (theme + accent + tone), else a built-in / user palette
+        const bool studioSame = s.darkTheme == Theme::isDark() && s.accentColour == Theme::accent() && s.backgroundTone == Theme::tone();
+        if (s.themeId == Theme::themeId() && (s.themeId.isNotEmpty() || studioSame) && s.layoutStyle == builtLayout) return;
+        Theme::clearPalette();
         Theme::setDark (s.darkTheme);
         Theme::setVariant (s.accentColour, s.backgroundTone);
+        if (s.themeId.isNotEmpty())
+        {
+            juce::String why;
+            if (const auto t = ThemeLibrary::resolve (s.themeId, why)) Theme::setPalette (s.themeId, t->colours, t->dark);
+            else
+            {
+                // unknown or broken theme: back to Studio, and say why
+                owner.showToast (ja ("配色を読み込めないため Studio に戻しました。") + why);
+                c.updateSettings ([] (Settings& st) { st.themeId = {}; });
+            }
+        }
         if (auto* lnf = dynamic_cast<KoeLookAndFeel*> (&juce::LookAndFeel::getDefaultLookAndFeel())) lnf->refreshColours();
         const auto current = page;
         voice.reset();
@@ -165,7 +230,7 @@ struct MainComponent::Impl : private juce::ChangeListener, private juce::Timer
     {
         if (voice->isShowing()) voice->tick(); // nothing to draw while the window sits in the tray
         if (soundBottom->isShowing()) soundBottom->tick (c.getStatus());
-        if (++ticks % 10 == 0) // notices raised from the controller's timer come without a change message
+        if (++ticks % (timerHz / 3) == 0) // notices raised from the controller's timer come without a change message
         {
             notices.setNotices (c.getNotices());
             for (auto& t : c.takeToasts()) toast.push (t);
@@ -177,7 +242,8 @@ struct MainComponent::Impl : private juce::ChangeListener, private juce::Timer
     juce::TooltipWindow tooltips; // F-13-6: 500 ms
     HeaderBar header;
     NoticeBar notices;
-    std::unique_ptr<VoiceView> voice;
+    std::unique_ptr<VoicePage> voice;
+    int builtLayout = 0;          // S-03 外観 「画面の配置」 the voice page was built with
     std::unique_ptr<SoundboardView> sound;
     std::unique_ptr<SettingsView> settings;
     std::unique_ptr<BottomBar> soundBottom; // A-S02 has the same bottom bar as S-01
@@ -186,8 +252,17 @@ struct MainComponent::Impl : private juce::ChangeListener, private juce::Timer
     std::unique_ptr<GuideTour> tour;
     Navigator::Page page = Navigator::Page::voice;
     bool compact = false;
+    bool switchingPage = false; // showPage() lays out again for a page-owned header (see layout())
     int ticks = 0;
+    int timerHz = 30;
 };
+
+float uiScaleFactor (const Settings& s) { return float (s.uiScalePercent) / 100.0f; }
+
+juce::Point<int> minimumWindowSize (const Settings& s)
+{
+    return { juce::roundToInt (float (Theme::minWidth) * uiScaleFactor (s)), juce::roundToInt (float (Theme::minHeight) * uiScaleFactor (s)) };
+}
 
 MainComponent::MainComponent (AppController& c) : impl (std::make_unique<Impl> (*this, c))
 {
@@ -209,6 +284,11 @@ MainComponent::~MainComponent()
 
 void MainComponent::paint (juce::Graphics& g) { g.fillAll (Theme::colours().bg); }
 void MainComponent::resized() { impl->layout(); }
+
+bool MainComponent::keyPressed (const juce::KeyPress& key)
+{
+    return impl->page == Page::settings && ! impl->overlay.isVisible() && impl->settings->keyPressed (key);
+}
 
 void MainComponent::showPage (Page page) { impl->showPage (page); }
 
@@ -366,7 +446,7 @@ int renderSnapshots (const juce::File& outputDir)
         MainComponent mc (c);
         mc.setSize (w, h);
         if (prepare) prepare (mc);
-        if (auto* v = dynamic_cast<VoiceView*> (findById (&mc, "page.voice"))) v->tick();
+        if (auto* v = dynamic_cast<VoicePage*> (findById (&mc, "page.voice"))) v->tick();
         const auto image = mc.createComponentSnapshot (mc.getLocalBounds(), true, 1.0f);
         auto file = outputDir.getChildFile (name + ".png");
         file.deleteFile();
@@ -427,18 +507,70 @@ int renderSnapshots (const juce::File& outputDir)
         clearSnapshotSoundboard (c);
         for (auto& [section, id] : sections)
             shot ("S03-" + juce::String (id) + t, W, H, [section] (MainComponent& m) { m.showSettings (section); });
+        // wave 4: 「詳細な設定」 open, and a search across the sections
+        c.updateSettings ([] (Settings& s) { s.settingsShowDetails = true; });
+        for (auto section : { Navigator::SettingsSection::environment, Navigator::SettingsSection::startup, Navigator::SettingsSection::appearance })
+            shot ("S03-" + juce::String (sections[int (section)].second) + "-details" + t, W, H, [section] (MainComponent& m) { m.showSettings (section); });
+        shot ("S03-devices-details-min" + t, w, h, [] (MainComponent& m) { m.showSettings (Navigator::SettingsSection::devices); });        c.updateSettings ([] (Settings& s) { s.settingsShowDetails = false; });
+        for (const char* q : { "遅延", "PTT" })
+            shot ("S03-search-" + juce::String (q[0] == 'P' ? "ptt" : "latency") + t, W, H, [q] (MainComponent& m)
+            {
+                m.showSettings (Navigator::SettingsSection::devices);
+                if (auto* v = dynamic_cast<SettingsView*> (findById (&m, "page.settings"))) v->setSearchText (juce::String::fromUTF8 (q));
+            });
         shot ("S06" + t, W, H, [] (MainComponent& m) { m.showPresetBrowser(); });
         shot ("S07" + t, W, H, [] (MainComponent& m) { m.showEffectPicker (-1); });
         shot ("S07-min" + t, w, h, [] (MainComponent& m) { m.showEffectPicker (-1); });
         shot ("S09" + t, W, H, [] (MainComponent& m) { m.showSlotDetail (0); });
         shot ("S09-min" + t, w, h, [] (MainComponent& m) { m.showSlotDetail (0); });
         shot ("S04" + t, W, H, [] (MainComponent& m) { m.showSetupWizard(); });
+        shot ("S04-step2" + t, W, H, [] (MainComponent& m)
+        {
+            m.showSetupWizard();
+            if (auto* next = dynamic_cast<juce::Button*> (findById (&m, "setup.next"))) next->onClick(); // 2 / 3 (the update question)
+        });
         shot ("S08-tour4" + t, W, H, [&c] (MainComponent& m)
         {
             c.updateSettings ([] (Settings& s) { s.tourStep = 3; });
             m.startTour (true);
         });
+        // wave5/mono: 案 C Mono (layoutStyle 2) in the default palette and in the Mono palette (themeId, wave5/themes)
+        for (const char* themeId : { "", "builtin:mono" })
+        {
+            c.updateSettings ([themeId] (Settings& s) { s.layoutStyle = 2; s.themeId = juce::String (themeId); });
+            const juce::String pal = *themeId != 0 ? "-mono" : "";
+            shot ("S01-mono-wide" + pal + t, W, H, {});
+            shot ("S01-mono-min" + pal + t, w, h, {});
+            shot ("S01-mono-min-presets" + pal + t, w, h, [] (MainComponent& m)
+            {
+                if (auto* b = dynamic_cast<juce::Button*> (findById (&m, "voice.presetSelector")); b != nullptr && b->isVisible()) b->onClick();
+            });
+        }
+        c.updateSettings ([] (Settings& s) { s.layoutStyle = 0; s.themeId = {}; });
     }
+
+    // wave5/paper: S-01 in 案 B Paper (layoutStyle 1), after the default set so those stay as they were
+    c.loadPreset ("character-demon-king");
+    c.updateSettings ([] (Settings& s) { s.layoutStyle = 1; });
+    for (const bool dark : { true, false })
+    {
+        Theme::setDark (dark);
+        lnf.refreshColours();
+        c.updateSettings ([dark] (Settings& s) { s.darkTheme = dark; });
+        const juce::String t = dark ? "-dark" : "-light";
+        shot ("S01-paper-wide" + t, Theme::defaultWidth, Theme::defaultHeight, {});
+        shot ("S01-paper-min" + t, Theme::minWidth, Theme::minHeight, {});
+    }
+    // ... and in its own Paper palette (wave5/themes); Studio's A layout in the Paper / Mono palettes
+    c.updateSettings ([] (Settings& s) { s.themeId = "builtin:paper"; });
+    shot ("S01-paper-wide-paper", Theme::defaultWidth, Theme::defaultHeight, {});
+    shot ("S01-paper-min-paper", Theme::minWidth, Theme::minHeight, {});
+    c.updateSettings ([] (Settings& s) { s.layoutStyle = 0; });
+    shot ("S01-wide-paper", Theme::defaultWidth, Theme::defaultHeight, {});
+    c.updateSettings ([] (Settings& s) { s.themeId = "builtin:mono"; });
+    shot ("S01-wide-mono", Theme::defaultWidth, Theme::defaultHeight, {});
+    c.updateSettings ([] (Settings& s) { s.layoutStyle = 0; s.themeId = {}; });
+    Theme::clearPalette();
 
     juce::LookAndFeel::setDefaultLookAndFeel (nullptr);
     Theme::setDark (wasDark);

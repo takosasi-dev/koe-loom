@@ -14,7 +14,8 @@ namespace koe
     Global hotkeys with Win32 RegisterHotKey (F-07-1, D-6: never a low-level keyboard hook).
     Message thread only. Action ids (F-07-2):
       voiceToggle, muteToggle, favoriteNext, favoritePrev, favorite.1 .. favorite.9,
-      slot.1 .. slot.10, sound.1 .. sound.12, soundStopAll, freezeToggle, looperRecPlay, looperClear
+      slot.1 .. slot.10, sound.1 .. sound.12, soundStop.1 .. soundStop.12 (owner 2026-10-03), soundStopAll, freezeToggle, looperRecPlay, looperClear,
+      pushToTalk (S-03 詳細, Settings::pushToTalk: active while the key stays down, see isKeyDown)
 */
 class Hotkeys
 {
@@ -36,6 +37,11 @@ public:
     static juce::StringArray allActions();
     /** Japanese label, e.g. "ボイチェン ON/OFF", "お気に入り 3", "スロット 7 の ON/OFF". */
     static juce::String actionLabel (const juce::String& action);
+
+    /** Whether the key is down right now (GetAsyncKeyState): RegisterHotKey only reports the press.
+        Tests set keyStateForTests to answer instead of the keyboard. */
+    static bool isKeyDown (int virtualKey);
+    static inline std::function<bool (int virtualKey)> keyStateForTests;
 
 private:
     struct Impl;

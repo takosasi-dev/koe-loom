@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Core/Constants.h"
+#include "Dsp/Building.h"
 
 #include <atomic>
 #include <vector>
@@ -20,6 +21,10 @@ public:
     void reset();
     void process (float* samples, int numSamples);
     int getLatencySamples() const noexcept { return lookahead; }
+    /** Thread-safe. Taken from the next process(): the ceiling glides there over ~10 ms, the release applies at once.
+        prepare() sets both. */
+    void setCeilingDb (float db) noexcept { ceilingTarget.store (dsp::dbToGain (db)); }
+    void setReleaseMs (float ms) noexcept { releaseTarget.store (ms); }
 
     /** UI: true if the limiter reduced gain by more than 0.1 dB since the last call (F-08-2). */
     bool fetchAndClearActive() noexcept { return active.exchange (false); }
@@ -28,7 +33,9 @@ public:
 private:
     float ceiling = 0.891f;
     int lookahead = 48;
-    float releaseCoeff = 0.999f;
+    float releaseCoeff = 0.999f, releaseMsCur = 60.0f, ceilingGlide = 0.99f;
+    double rate = 48000.0;
+    std::atomic<float> ceilingTarget { 0.891f }, releaseTarget { 60.0f };
     std::vector<float> delay, reqRing, avgRing;
     int pos = 0, reqPos = 0;
     float held = 1.0f;

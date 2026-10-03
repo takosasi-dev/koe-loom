@@ -31,6 +31,8 @@ public:
     /** True once after the device stopped or failed by itself (unplugged, F-01-4). Message thread. */
     bool fetchDeviceLost() noexcept;
     void setVolumeDb (float db) noexcept;
+    /** Settings::monitorLatency: target FIFO fill 0 = 1.0, 1 = 1.5 (before), 2 = 3.0 x (main block + monitor block). */
+    void setLatencyMode (int mode) noexcept;
 
     /** Main audio thread. */
     void push (const float* samples, int numSamples) override;
@@ -39,6 +41,7 @@ public:
     int getUnderruns() const noexcept;
     int getOverruns() const noexcept;
     double getRatioPpm() const noexcept;     // measured clock-ratio correction, ppm
+    int getFillForTests() const noexcept;    // samples waiting in the FIFO (main rate)
     /** Tests: run the pull side without a device (as if the monitor device asked for n samples). */
     void prepareForTest (double mainRate, double monitorRate, int monitorBlock);
     void pullForTest (float* out, int numSamples);

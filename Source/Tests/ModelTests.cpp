@@ -305,8 +305,9 @@ private:
 
         beginTest ("AC-26: three heavy ON -> the first two stay ON (E-23)");
         {
-            auto p = parse (presetJson ({ slotJson ("granular"), slotJson ("eq"), slotJson ("autopitch"), slotJson ("vocoder"),
-                                          slotJson ("granular", {}, false) }), r);
+            // autopitch is the only heavy type since the weights follow the measured CPU (2026-10-03)
+            auto p = parse (presetJson ({ slotJson ("autopitch"), slotJson ("eq"), slotJson ("autopitch"), slotJson ("autopitch"),
+                                          slotJson ("autopitch", {}, false) }), r);
             if (! shaped (p, 5)) return;
             expectEquals (int (p->chain.size()), 5);
             expect (p->chain[0].enabled && p->chain[2].enabled && ! p->chain[3].enabled && ! p->chain[4].enabled);
@@ -464,6 +465,34 @@ private:
         expect (! file.getSiblingFile ("settings.json.tmp").exists());
         auto back = loadSettings (file, res);
         expect (back == s && ! res.corrupted && res.clampedKeys.isEmpty(), res.clampedKeys.joinIntoString (","));
+
+        beginTest ("detailed settings: every new key round-trips; out-of-range choices fall back to defaults");
+        {
+            Settings d;
+            d.converterQuality = 2; d.pitchMinHz = 80.0f; d.pitchMaxHz = 600.0f; d.highPassOn = true; d.highPassHz = 120.0f;
+            d.agcOn = true; d.agcTargetDb = -20.0f; d.agcMaxGainDb = 6.0f; d.limiterCeilingDb = -3.0f; d.limiterReleaseMs = 200.0f;
+            d.presetCrossfadeMs = 100.0f; d.soundboardMaxVoices = 3; d.soundFadeMs = 50.0f; d.duckAttackMs = 5.0f;
+            d.duckReleaseMs = 800.0f; d.monitorIncludeSoundboard = false; d.wasapiExclusive = true; d.inputChannel = 2;
+            d.monitorLatency = 2; d.reconnectSeconds = 5; d.pushToTalk = 1; d.pttReleaseMs = 0.0f; d.hotkeyToasts = true;
+            d.favoriteWrap = false; d.startupVoice = 2; d.startupLastPreset = false; d.closeAction = 1; d.trayNotifications = true;
+            d.logLevel = 2; d.logKeepDays = 30; d.uiScalePercent = 125; d.alwaysOnTop = true; d.animations = 2; d.meterFps = 60;
+            d.meterPeakHoldMs = 0.0f; d.tooltipDelayMs = 1000.0f; d.knobSensitivity = 0; d.knobWheel = false; d.settingsShowDetails = true;
+            d.autoUpdate = true; d.updateIncludePrerelease = false; d.updateSkippedVersion = "0.2.0";
+            d.layoutStyle = 2; d.themeId = "user:my-theme";
+            expect (clampSettings (d) == d);
+            expect (saveSettings (d, file));
+            expect (loadSettings (file, res) == d && res.clampedKeys.isEmpty(), res.clampedKeys.joinIntoString (","));
+
+            file.replaceWithText ("{\"converterQuality\": 5, \"uiScalePercent\": 77, \"meterFps\": 45, \"pitchMinHz\": 300,"
+                                  " \"pitchMaxHz\": 300, \"soundboardMaxVoices\": 0, \"logKeepDays\": 99, \"limiterCeilingDb\": 3}");
+            const auto c = loadSettings (file, res);
+            const Settings def;
+            expect (c.converterQuality == def.converterQuality && c.uiScalePercent == def.uiScalePercent && c.meterFps == def.meterFps);
+            expect (c.pitchMinHz == kPitchMinHz.def && c.pitchMaxHz == kPitchMaxHz.def && c.soundboardMaxVoices == def.soundboardMaxVoices);
+            expect (c.logKeepDays == def.logKeepDays && c.limiterCeilingDb == kLimiterCeilingSetDb.max);
+            for (auto* k : { "converterQuality", "uiScalePercent", "meterFps", "pitchMinHz", "soundboardMaxVoices", "logKeepDays", "limiterCeilingDb" })
+                expect (res.clampedKeys.contains (k), k);
+        }
 
         beginTest ("AC-25: invalid JSON -> defaults, original kept as settings.json.bak");
         file.replaceWithText ("{ \"outputGainDb\": 3, oops");

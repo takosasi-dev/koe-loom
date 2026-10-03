@@ -66,7 +66,7 @@ int runUnitTests (const juce::String& category)
 }
 
 // =============================================================================================
-class MainWindow final : public juce::DocumentWindow
+class MainWindow final : public juce::DocumentWindow, private juce::ChangeListener
 {
 public:
     MainWindow (koe::AppController& c, juce::LookAndFeel& lnf)
@@ -74,17 +74,34 @@ public:
     {
         setLookAndFeel (&lnf);
         setUsingNativeTitleBar (true);
-        content = new koe::ui::MainComponent (controller);
+        content = new koe::ui::MainComponent (controller); // applies S-03 拡大率 (Desktop scale) before the sizes below
         setContentOwned (content, false);
         setResizable (true, false);
-        setResizeLimits (koe::ui::Theme::minWidth, koe::ui::Theme::minHeight, 10000, 10000); // F-14-11
+        // F-14-11, in logical pixels: with 拡大率 the smallest window grows by the same factor (ui::minimumWindowSize)
+        setResizeLimits (koe::ui::Theme::minWidth, koe::ui::Theme::minHeight, 10000, 10000);
         centreWithSize (koe::ui::Theme::defaultWidth, koe::ui::Theme::defaultHeight);
+        setAlwaysOnTop (controller.getSettings().alwaysOnTop);
+        controller.addChangeListener (this);
     }
 
-    ~MainWindow() override { setLookAndFeel (nullptr); }
+    ~MainWindow() override
+    {
+        controller.removeChangeListener (this);
+        setLookAndFeel (nullptr);
+    }
 
-    /** Closing the window keeps KoeLoom running in the tray (F-09-1). */
-    void closeButtonPressed() override { setVisible (false); }
+    /** Closing the window keeps KoeLoom running in the tray (F-09-1), unless S-03 「× ボタンの動き」 is 終了する:
+        then it quits the way the tray's 終了 does (the 「終了時に確認」 question included). */
+    void closeButtonPressed() override
+    {
+        if (controller.getSettings().closeAction == 1 && controller.onQuitRequest) controller.onQuitRequest();
+        else setVisible (false);
+    }
+
+    void changeListenerCallback (juce::ChangeBroadcaster*) override
+    {
+        if (isAlwaysOnTop() != controller.getSettings().alwaysOnTop) setAlwaysOnTop (controller.getSettings().alwaysOnTop); // S-03 常に手前
+    }
 
     void applyRenderer (bool software)
     {
@@ -119,6 +136,8 @@ public:
     /** F-09-4: one instance; tools (tests, snapshots, calibration) may run beside a running app. */
     bool moreThanOneInstanceAllowed() override
     {
+        // after an update the new exe waits here for the old one to exit, then takes the single-instance lock
+        koe::updater::waitForOldProcess (juce::JUCEApplicationBase::getCommandLineParameterArray());
         return hasArg ("--run-tests") || hasArg ("--snapshot") || hasArg ("--calibrate-presets");
     }
 
@@ -168,6 +187,7 @@ public:
         controller->onShowWindowRequest = [this] { if (window != nullptr) window->bringToFront(); };
         controller->onQuitRequest = [this] { requestQuitFromTray(); };
         controller->addChangeListener (tray.get());
+        koe::updater::removeOldExe (juce::File::getSpecialLocation (juce::File::currentExecutableFile)); // a finished update
 
         const bool hidden = controller->getSettings().startMinimized || hasArg ("--autostart"); // F-09-2
         window->setVisible (! hidden);

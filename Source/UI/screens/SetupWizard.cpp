@@ -333,6 +333,21 @@ struct SetupWizard::Impl final : juce::ChangeListener, juce::Timer, juce::Compon
         }
         inputCombo->onChange = [this] { c.setInputDevice (inputCombo->getSelectedId() > 1 ? inputCombo->getText() : juce::String()); };
         outputCombo->onChange = [this] { c.setOutputDevice (outputCombo->getSelectedId() > 1 ? outputCombo->getText() : juce::String()); };
+
+        // INTERFACES.md §7.4: asked once here, OFF by default (no network unless turned on); S-03 起動と常駐 > 更新 has it too
+        auto t = std::make_unique<ToggleSwitch>(); // the device row above already ends with a divider
+        autoUpdate = t.get();
+        t->setComponentID ("setup.autoUpdate");
+        t->setTitle (ja ("新しい版を自動で受け取る"));
+        t->setToggleState (c.getSettings().autoUpdate, juce::dontSendNotification);
+        t->onClick = [this] { c.updateSettings ([on = autoUpdate->getToggleState()] (Settings& s) { s.autoUpdate = on; }); };
+        auto upd = std::make_unique<SettingRow> (ja ("新しい版を自動で受け取る"),
+                                                 ja ("GitHub の公開ページを確認して新しい版をダウンロードし、終了時に置き換えます。OFF のときは通信しません"),
+                                                 std::move (t), ToggleSwitch::preferredWidth(), ToggleSwitch::preferredWidth(),
+                                                 [] (int) { return Theme::toggleH + Theme::space2; });
+        upd->setDivider (false);
+        auto* raw = upd.get();
+        v.add (std::move (upd), [raw] (int w) { return raw->heightForWidth (w); });
     }
 
     // ------------------------------------------------------------------------------- step 3: Discord (F-10-3..F-10-5)
@@ -555,6 +570,7 @@ struct SetupWizard::Impl final : juce::ChangeListener, juce::Timer, juce::Compon
     PillButton* openButton = nullptr;
     juce::ComboBox *inputCombo = nullptr, *outputCombo = nullptr;
     TextLabel *inputStatus = nullptr, *outputStatus = nullptr;
+    ToggleSwitch* autoUpdate = nullptr;
     TestBox* test = nullptr;
     juce::Rectangle<int> headerArea, cardArea;
     int step = 0, heardTicks = 0;

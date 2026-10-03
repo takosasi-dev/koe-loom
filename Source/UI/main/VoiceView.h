@@ -5,6 +5,7 @@
 // and the bottom bar (monitor, latency, XRUN, CPU, 自動停止).
 
 #include "UI/main/ChainStrip.h"
+#include "UI/main/VoicePage.h"
 
 namespace koe::ui::mainui
 {
@@ -27,19 +28,19 @@ private:
     std::unique_ptr<Impl> impl;
 };
 
-class VoiceView : public juce::Component
+class VoiceView : public VoicePage
 {
 public:
     VoiceView (AppController& c, Navigator& nav);
     ~VoiceView() override;
 
     /** §8.2.1 layout (MainComponent passes width < Theme::narrowWidth). */
-    void setCompact (bool compact);
-    bool isCompact() const;
+    void setCompact (bool compact) override;
+    bool isCompact() const override;
     /** Model changed (AppController change message). */
-    void refresh();
+    void refresh() override;
     /** 30 fps: meters and status (F-08-1). */
-    void tick();
+    void tick() override;
     void paint (juce::Graphics& g) override;
     void resized() override;
     ChainStrip& chainStrip();

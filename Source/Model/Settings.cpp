@@ -2,6 +2,7 @@
 
 #include "Model/Preset.h"
 
+#include <algorithm>
 #include <cmath>
 
 namespace koe
@@ -63,6 +64,45 @@ Settings clampSettings (const Settings& in, juce::StringArray* clampedKeys)
     range ("outputGainDb", s.outputGainDb, kOutputGainDb);
     range ("monitorVolumeDb", s.monitorVolumeDb, kMonitorVolumeDb);
     range ("duckingDb", s.duckingDb, kDuckingDb);
+    range ("pitchMinHz", s.pitchMinHz, kPitchMinHz);
+    range ("pitchMaxHz", s.pitchMaxHz, kPitchMaxHz);
+    range ("highPassHz", s.highPassHz, kHighPassHz);
+    range ("agcTargetDb", s.agcTargetDb, kAgcTargetDb);
+    range ("agcMaxGainDb", s.agcMaxGainDb, kAgcMaxGainDb);
+    range ("limiterCeilingDb", s.limiterCeilingDb, kLimiterCeilingSetDb);
+    range ("limiterReleaseMs", s.limiterReleaseMs, kLimiterReleaseMs);
+    range ("presetCrossfadeMs", s.presetCrossfadeMs, kPresetCrossfadeMs);
+    range ("soundFadeMs", s.soundFadeMs, kSoundFadeMs);
+    range ("duckAttackMs", s.duckAttackMs, kDuckAttackMs);
+    range ("duckReleaseMs", s.duckReleaseMs, kDuckReleaseMs);
+    range ("pttReleaseMs", s.pttReleaseMs, kPttReleaseMs);
+    range ("meterPeakHoldMs", s.meterPeakHoldMs, kMeterPeakHoldMs);
+    range ("tooltipDelayMs", s.tooltipDelayMs, kTooltipDelayMs);
+    if (s.pitchMinHz >= s.pitchMaxHz) { s.pitchMinHz = kPitchMinHz.def; s.pitchMaxHz = kPitchMaxHz.def; changed.addIfNotAlreadyThere ("pitchMinHz"); }
+
+    auto choice = [&changed] (const char* key, int& v, int lo, int hi, int def) {
+        if (v < lo || v > hi) { v = def; changed.add (key); }
+    };
+    const Settings d;
+    choice ("converterQuality", s.converterQuality, 0, 2, d.converterQuality);
+    choice ("soundboardMaxVoices", s.soundboardMaxVoices, 1, kSoundboardMaxVoices, d.soundboardMaxVoices);
+    choice ("inputChannel", s.inputChannel, 0, 3, d.inputChannel);
+    choice ("monitorLatency", s.monitorLatency, 0, 2, d.monitorLatency);
+    choice ("reconnectSeconds", s.reconnectSeconds, 1, 10, d.reconnectSeconds);
+    choice ("pushToTalk", s.pushToTalk, 0, 2, d.pushToTalk);
+    choice ("startupVoice", s.startupVoice, 0, 2, d.startupVoice);
+    choice ("closeAction", s.closeAction, 0, 1, d.closeAction);
+    choice ("logLevel", s.logLevel, 0, 2, d.logLevel);
+    choice ("logKeepDays", s.logKeepDays, 1, 30, d.logKeepDays);
+    choice ("animations", s.animations, 0, 2, d.animations);
+    choice ("knobSensitivity", s.knobSensitivity, 0, 2, d.knobSensitivity);
+    choice ("layoutStyle", s.layoutStyle, 0, 2, d.layoutStyle);
+    if (s.meterFps != 30 && s.meterFps != 60) { s.meterFps = d.meterFps; changed.add ("meterFps"); }
+    if (std::find (std::begin (kUiScalePercents), std::end (kUiScalePercents), s.uiScalePercent) == std::end (kUiScalePercents))
+    {
+        s.uiScalePercent = d.uiScalePercent;
+        changed.add ("uiScalePercent");
+    }
 
     if (const float g = std::round (s.outputGainDb / kOutputGainStepDb) * kOutputGainStepDb; g != s.outputGainDb)
     {
@@ -147,6 +187,50 @@ Settings loadSettings (const juce::File& file, SettingsLoadResult& result)
     r.get ("tourStep", s.tourStep);
     r.get ("soundboardHintShown", s.soundboardHintShown);
     r.get ("duckingDb", s.duckingDb);
+    r.get ("converterQuality", s.converterQuality);
+    r.get ("pitchMinHz", s.pitchMinHz);
+    r.get ("pitchMaxHz", s.pitchMaxHz);
+    r.get ("highPassOn", s.highPassOn);
+    r.get ("highPassHz", s.highPassHz);
+    r.get ("agcOn", s.agcOn);
+    r.get ("agcTargetDb", s.agcTargetDb);
+    r.get ("agcMaxGainDb", s.agcMaxGainDb);
+    r.get ("limiterCeilingDb", s.limiterCeilingDb);
+    r.get ("limiterReleaseMs", s.limiterReleaseMs);
+    r.get ("presetCrossfadeMs", s.presetCrossfadeMs);
+    r.get ("soundboardMaxVoices", s.soundboardMaxVoices);
+    r.get ("soundFadeMs", s.soundFadeMs);
+    r.get ("duckAttackMs", s.duckAttackMs);
+    r.get ("duckReleaseMs", s.duckReleaseMs);
+    r.get ("monitorIncludeSoundboard", s.monitorIncludeSoundboard);
+    r.get ("wasapiExclusive", s.wasapiExclusive);
+    r.get ("inputChannel", s.inputChannel);
+    r.get ("monitorLatency", s.monitorLatency);
+    r.get ("reconnectSeconds", s.reconnectSeconds);
+    r.get ("pushToTalk", s.pushToTalk);
+    r.get ("pttReleaseMs", s.pttReleaseMs);
+    r.get ("hotkeyToasts", s.hotkeyToasts);
+    r.get ("favoriteWrap", s.favoriteWrap);
+    r.get ("startupVoice", s.startupVoice);
+    r.get ("startupLastPreset", s.startupLastPreset);
+    r.get ("closeAction", s.closeAction);
+    r.get ("trayNotifications", s.trayNotifications);
+    r.get ("logLevel", s.logLevel);
+    r.get ("logKeepDays", s.logKeepDays);
+    r.get ("uiScalePercent", s.uiScalePercent);
+    r.get ("alwaysOnTop", s.alwaysOnTop);
+    r.get ("animations", s.animations);
+    r.get ("meterFps", s.meterFps);
+    r.get ("meterPeakHoldMs", s.meterPeakHoldMs);
+    r.get ("tooltipDelayMs", s.tooltipDelayMs);
+    r.get ("knobSensitivity", s.knobSensitivity);
+    r.get ("knobWheel", s.knobWheel);
+    r.get ("settingsShowDetails", s.settingsShowDetails);
+    r.get ("autoUpdate", s.autoUpdate);
+    r.get ("updateIncludePrerelease", s.updateIncludePrerelease);
+    r.get ("updateSkippedVersion", s.updateSkippedVersion);
+    r.get ("layoutStyle", s.layoutStyle);
+    r.get ("themeId", s.themeId);
 
     if (auto* fav = root["favorites"].getArray())
     {
@@ -217,6 +301,50 @@ bool saveSettings (const Settings& s, const juce::File& file)
     o->setProperty ("tourStep", s.tourStep);
     o->setProperty ("soundboardHintShown", s.soundboardHintShown);
     o->setProperty ("duckingDb", s.duckingDb);
+    o->setProperty ("converterQuality", s.converterQuality);
+    o->setProperty ("pitchMinHz", s.pitchMinHz);
+    o->setProperty ("pitchMaxHz", s.pitchMaxHz);
+    o->setProperty ("highPassOn", s.highPassOn);
+    o->setProperty ("highPassHz", s.highPassHz);
+    o->setProperty ("agcOn", s.agcOn);
+    o->setProperty ("agcTargetDb", s.agcTargetDb);
+    o->setProperty ("agcMaxGainDb", s.agcMaxGainDb);
+    o->setProperty ("limiterCeilingDb", s.limiterCeilingDb);
+    o->setProperty ("limiterReleaseMs", s.limiterReleaseMs);
+    o->setProperty ("presetCrossfadeMs", s.presetCrossfadeMs);
+    o->setProperty ("soundboardMaxVoices", s.soundboardMaxVoices);
+    o->setProperty ("soundFadeMs", s.soundFadeMs);
+    o->setProperty ("duckAttackMs", s.duckAttackMs);
+    o->setProperty ("duckReleaseMs", s.duckReleaseMs);
+    o->setProperty ("monitorIncludeSoundboard", s.monitorIncludeSoundboard);
+    o->setProperty ("wasapiExclusive", s.wasapiExclusive);
+    o->setProperty ("inputChannel", s.inputChannel);
+    o->setProperty ("monitorLatency", s.monitorLatency);
+    o->setProperty ("reconnectSeconds", s.reconnectSeconds);
+    o->setProperty ("pushToTalk", s.pushToTalk);
+    o->setProperty ("pttReleaseMs", s.pttReleaseMs);
+    o->setProperty ("hotkeyToasts", s.hotkeyToasts);
+    o->setProperty ("favoriteWrap", s.favoriteWrap);
+    o->setProperty ("startupVoice", s.startupVoice);
+    o->setProperty ("startupLastPreset", s.startupLastPreset);
+    o->setProperty ("closeAction", s.closeAction);
+    o->setProperty ("trayNotifications", s.trayNotifications);
+    o->setProperty ("logLevel", s.logLevel);
+    o->setProperty ("logKeepDays", s.logKeepDays);
+    o->setProperty ("uiScalePercent", s.uiScalePercent);
+    o->setProperty ("alwaysOnTop", s.alwaysOnTop);
+    o->setProperty ("animations", s.animations);
+    o->setProperty ("meterFps", s.meterFps);
+    o->setProperty ("meterPeakHoldMs", s.meterPeakHoldMs);
+    o->setProperty ("tooltipDelayMs", s.tooltipDelayMs);
+    o->setProperty ("knobSensitivity", s.knobSensitivity);
+    o->setProperty ("knobWheel", s.knobWheel);
+    o->setProperty ("settingsShowDetails", s.settingsShowDetails);
+    o->setProperty ("autoUpdate", s.autoUpdate);
+    o->setProperty ("updateIncludePrerelease", s.updateIncludePrerelease);
+    o->setProperty ("updateSkippedVersion", s.updateSkippedVersion);
+    o->setProperty ("layoutStyle", s.layoutStyle);
+    o->setProperty ("themeId", s.themeId);
 
     // replaceWithText writes a temporary file next to the target and then replaces it (atomic save)
     file.getParentDirectory().createDirectory();

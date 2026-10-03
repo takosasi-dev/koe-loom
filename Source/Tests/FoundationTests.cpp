@@ -36,9 +36,10 @@ public:
         }
         expectEquals (int (types.size()), 30);
         expectEquals (phase2, 24);
-        expectEquals (light, 17);
-        expectEquals (medium, 10);
-        expectEquals (heavy, 3);
+        // §4 had 17 / 10 / 3; freeze, granular, whisper -> light and vocoder -> medium follow the measured CPU (owner, 2026-10-03)
+        expectEquals (light, 20);
+        expectEquals (medium, 9);
+        expectEquals (heavy, 1);
     }
 };
 

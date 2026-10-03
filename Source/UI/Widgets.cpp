@@ -118,8 +118,18 @@ void Knob::mouseDown (const juce::MouseEvent& e)
         return;
     }
     // Shift = fine adjustment (F-14-5), decided at the start of the drag so the value never jumps
-    setMouseDragSensitivity ((size == Size::big ? 300 : 200) * (e.mods.isShiftDown() ? 6 : 1));
+    // S-03 「つまみの感度」 scales the drag distance (ゆっくり = longer, 速い = shorter)
+    const double sensitivity[] = { 1.6, 1.0, 0.6 };
+    const double k = sensitivity[juce::jlimit (0, 2, Theme::prefs().knobSensitivity)];
+    setMouseDragSensitivity (juce::roundToInt ((size == Size::big ? 300 : 200) * (e.mods.isShiftDown() ? 6 : 1) * k));
     juce::Slider::mouseDown (e);
+}
+
+void Knob::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& w)
+{
+    // S-03 「ホイールでつまみを回す」 OFF: the wheel scrolls the parent instead
+    setScrollWheelEnabled (Theme::prefs().knobWheel);
+    juce::Slider::mouseWheelMove (e, w);
 }
 
 void Knob::mouseDrag (const juce::MouseEvent& e)
@@ -344,12 +354,15 @@ float LevelMeter::dbToPos (float db) { return juce::jlimit (0.0f, 1.0f, (db + 60
 
 void LevelMeter::setLevel (float db, bool clipped)
 {
-    // fast attack, ~20 dB/s fall for the bar; 1.5 s peak hold (45 frames at 30 fps)
-    level = db > level ? db : std::max (db, level - 0.7f);
-    if (db >= peak) { peak = db; peakHold = 45; }
+    // fast attack, ~20 dB/s fall for the bar; peak hold from S-03 (default 1.5 s = 45 frames at 30 fps).
+    // Fed once per frame at Theme::prefs().meterFps, so the per-frame steps scale to keep the same speed.
+    const auto& pr = Theme::prefs();
+    const float perFrame = 30.0f / float (pr.meterFps);
+    level = db > level ? db : std::max (db, level - 0.7f * perFrame);
+    if (db >= peak) { peak = db; peakHold = juce::roundToInt (pr.peakHoldMs * float (pr.meterFps) / 1000.0f); }
     else if (peakHold > 0) --peakHold;
-    else peak = std::max (db, peak - 1.0f);
-    if (clipped) clipHold = 45;
+    else peak = std::max (db, peak - 1.0f * perFrame);
+    if (clipped) clipHold = juce::roundToInt (1.5f * float (pr.meterFps));
     else if (clipHold > 0) --clipHold;
     repaint();
 }

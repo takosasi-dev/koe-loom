@@ -331,6 +331,7 @@ int SectionCard::heightForWidth (int width) const
     int h = Theme::space2 + m::cardHeaderH + Theme::space3;
     for (auto& it : items)
     {
+        if (! it.comp->isVisible()) continue; // S-03: closed 「詳細な設定」, search filter
         const bool isRow = dynamic_cast<SettingRow*> (it.comp.get()) != nullptr;
         h += it.heightFor (inner) + (isRow ? 0 : Theme::space2 * 2);
     }
@@ -356,6 +357,7 @@ void SectionCard::resized()
     SettingRow* lastRow = nullptr;
     for (auto& it : items)
     {
+        if (! it.comp->isVisible()) continue;
         const bool isRow = dynamic_cast<SettingRow*> (it.comp.get()) != nullptr;
         if (! isRow) r.removeFromTop (Theme::space2);
         it.comp->setBounds (r.removeFromTop (it.heightFor (inner)));
@@ -372,6 +374,11 @@ void SectionCard::resized()
         }
     }
     if (lastRow != nullptr) lastRow->setDivider (false);
+}
+
+bool SectionCard::hasVisibleItems() const
+{
+    return std::any_of (items.begin(), items.end(), [] (const Item& it) { return it.comp->isVisible(); });
 }
 
 void SectionCard::paint (juce::Graphics& g)
@@ -391,19 +398,23 @@ SectionCard& CardColumn::addCard (std::unique_ptr<SectionCard> card)
 int CardColumn::heightForWidth (int width) const
 {
     int h = 0;
-    for (auto& c : cards) h += c->heightForWidth (width) + (h > 0 ? Theme::space3 : 0);
+    for (auto& c : cards)
+        if (c->isVisible()) h += c->heightForWidth (width) + (h > 0 ? Theme::space3 : 0);
     return h;
 }
 
 void CardColumn::resized()
 {
-    // the first card takes any spare height, like the mock's flex-grow card
+    // the last card takes any spare height, like the mock's flex-grow card (one card in every mocked section)
     auto r = getLocalBounds();
-    int extra = juce::jmax (0, getHeight() - heightForWidth (getWidth()));
+    const int extra = juce::jmax (0, getHeight() - heightForWidth (getWidth()));
+    SectionCard* last = nullptr;
+    for (auto& c : cards)
+        if (c->isVisible()) last = c.get();
     for (auto& c : cards)
     {
-        c->setBounds (r.removeFromTop (c->heightForWidth (r.getWidth()) + extra));
-        extra = 0;
+        if (! c->isVisible()) continue;
+        c->setBounds (r.removeFromTop (c->heightForWidth (r.getWidth()) + (c.get() == last ? extra : 0)));
         r.removeFromTop (Theme::space3);
     }
 }
@@ -478,6 +489,22 @@ void FlowBox::resized()
         items[i].c->setBounds (x, y + (heights[size_t (line)] - items[i].h) / 2, w, items[i].h);
         x += w + gap;
     }
+}
+
+// =============================================================================================== SearchField
+SearchField::SearchField (const juce::String& placeholder, const juce::String& accessibleTitle)
+{
+    setFont (Theme::ui (Theme::fontS));
+    setTextToShowWhenEmpty (placeholder, Theme::colours().textSub);
+    setIndents (Theme::space5 + Theme::space1, (Theme::controlH - int (Theme::fontS) - Theme::space1) / 2);
+    setTitle (accessibleTitle);
+}
+
+void SearchField::paintOverChildren (juce::Graphics& g)
+{
+    juce::TextEditor::paintOverChildren (g);
+    const float s = float (m::iconS) * 0.9f;
+    drawIcon (g, Icon::search, juce::Rectangle<float> (float (Theme::space2 + Theme::space1), (float (getHeight()) - s) * 0.5f, s, s), Theme::colours().textSub);
 }
 
 // =============================================================================================== Segmented

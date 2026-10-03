@@ -26,6 +26,7 @@
 
 #include "Dsp/Building.h"
 
+#include <atomic>
 #include <memory>
 #include <vector>
 
@@ -53,6 +54,9 @@ public:
 
     void prepare (double sampleRate, const Settings& settings = {});
     void reset();
+    /** Audio thread, no allocation: narrow the detection range within the prepared one (S-03 詳細 pitchMinHz /
+        pitchMaxHz). Cheap when unchanged; call before process(). */
+    void setRange (double fminHz, double fmaxHz) noexcept;
     /** Feed input of any length; runs one detection every hop. */
     void process (const float* x, int numSamples);
 
@@ -67,6 +71,7 @@ public:
     int getWindowSamples() const noexcept { return curN * decim; }
 
 private:
+    void applyRange (double fminHz, double fmaxHz) noexcept;
     void detect();
     float detectMpm (int n, int tauMax);
     float detectYin (int n, int tauMax);
@@ -86,7 +91,13 @@ private:
     std::vector<float> win, bufA, bufB, curve;
     std::vector<double> prefix;
     float f0 = 0.0f, clarity = 0.0f;
+    double curMin = 60.0, curMax = 1000.0;
 };
+
+/** App-wide detection range of the voice-following features (scale-locked layers, autopitch), set from the
+    settings (S-03 詳細) and read by them on the audio thread every block. */
+inline std::atomic<float> gVoicePitchMinHz { 60.0f }, gVoicePitchMaxHz { 1000.0f };
+inline void setVoicePitchRange (float minHz, float maxHz) noexcept { gVoicePitchMinHz.store (minHz); gVoicePitchMaxHz.store (maxHz); }
 
 inline float hzToMidi (float hz) noexcept { return 69.0f + 12.0f * std::log2 (hz / 440.0f); }
 inline float midiToHz (float note) noexcept { return 440.0f * std::exp2 ((note - 69.0f) / 12.0f); }

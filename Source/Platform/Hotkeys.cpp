@@ -164,8 +164,15 @@ juce::StringArray Hotkeys::allActions()
     for (int i = 1; i <= kMaxFavorites; ++i) a.add ("favorite." + juce::String (i));
     for (int i = 1; i <= kMaxSlots; ++i) a.add ("slot." + juce::String (i));
     for (int i = 1; i <= kSoundboardSlots; ++i) a.add ("sound." + juce::String (i));
-    a.addArray (juce::StringArray { "soundStopAll", "freezeToggle", "looperRecPlay", "looperClear" });
+    for (int i = 1; i <= kSoundboardSlots; ++i) a.add ("soundStop." + juce::String (i));
+    a.addArray (juce::StringArray { "soundStopAll", "freezeToggle", "looperRecPlay", "looperClear", "pushToTalk" });
     return a;
+}
+
+bool Hotkeys::isKeyDown (int virtualKey)
+{
+    if (keyStateForTests) return keyStateForTests (virtualKey);
+    return (GetAsyncKeyState (virtualKey) & 0x8000) != 0;
 }
 
 juce::String Hotkeys::actionLabel (const juce::String& action)
@@ -178,10 +185,12 @@ juce::String Hotkeys::actionLabel (const juce::String& action)
     if (action.startsWith ("favorite.")) return u8 ("お気に入り ") + n;
     if (action.startsWith ("slot.")) return u8 ("スロット ") + n + u8 (" の ON/OFF");
     if (action.startsWith ("sound.")) return u8 ("サウンド ") + n;
+    if (action.startsWith ("soundStop.")) return u8 ("効果音 ") + n + u8 (" を止める");
     if (action == "soundStopAll") return u8 ("サウンドを全停止");
     if (action == "freezeToggle") return u8 ("フリーズの切替");
     if (action == "looperRecPlay") return u8 ("ルーパーの録音/再生");
     if (action == "looperClear") return u8 ("ルーパーの消去");
+    if (action == "pushToTalk") return u8 ("プッシュトゥトーク（押している間）");
     return action;
 }
 } // namespace koe

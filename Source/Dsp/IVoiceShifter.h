@@ -35,6 +35,9 @@ std::unique_ptr<IVoiceShifter> createSignalsmithShifter (const ShifterConfig& = 
 /** Candidate B: own phase vocoder. FFT size 2^fftOrder, Hann window of windowLength samples (zero padded),
     hop windowLength / 4, latency windowLength - 1. */
 std::unique_ptr<IVoiceShifter> createPhaseVocoderShifter (int fftOrder = 11, int windowLength = 1536);
+/** The voice converter at a quality (S-03 詳細 converterQuality, clamped to 0..2): 0 低遅延 = Hann 1024 in FFT 2048
+    (latency 1023), 1 標準 = the default above (1535), 2 高品質 = FFT 4096 / Hann 2048 (2047). */
+std::unique_ptr<IVoiceShifter> createConverterShifter (int quality);
 /** Test implementation: pure delay of a fixed latency (AC-35). */
 std::unique_ptr<IVoiceShifter> createIdentityShifter (int latencySamples);
 } // namespace koe

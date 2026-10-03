@@ -21,7 +21,9 @@ constexpr double kKiPerSecond = 3.0e-5;
 constexpr double kFillTauSeconds = 1.0;
 constexpr double kMaxIntegral = 0.002;      // ±2000 ppm
 constexpr double kMaxCorrection = 0.005;
-constexpr double kTargetBlocks = 1.5;       // target fill = 1.5 * (main block + monitor block); ponytail: fixed, tune from real-device runs
+// target fill = k * (main block + monitor block), k by Settings::monitorLatency (1 = 1.5, the value before);
+// ponytail: tuned offline only, retune from real-device runs
+constexpr double kTargetBlocks[] = { 1.0, 1.5, 3.0 };
 constexpr float kGlitchFadeMs = 2.0f;       // fade to silence on underrun / overrun
 constexpr int kChunk = 1024;
 // the processor clamps the monitor mix to the limiter ceiling; Catmull-Rom overshoots up to 1.25x on
@@ -50,6 +52,7 @@ struct MonitorOutput::Impl final : juce::AudioIODeviceCallback
     std::atomic<bool> lost { false };     // the device stopped or failed by itself
     bool stoppingOnPurpose = false;       // message thread
     std::atomic<float> volumeDb { kMonitorVolumeDb.def };
+    std::atomic<int> latencyMode { 1 };
 
     // ---- device (message thread) ----
     std::unique_ptr<juce::AudioIODeviceType> type;
@@ -101,7 +104,10 @@ struct MonitorOutput::Impl final : juce::AudioIODeviceCallback
         active.store (true);
     }
 
-    double targetFill() const noexcept { return kTargetBlocks * (maxPush.load (std::memory_order_relaxed) + monBlock * nominal); }
+    double targetFill() const noexcept
+    {
+        return kTargetBlocks[latencyMode.load (std::memory_order_relaxed)] * (maxPush.load (std::memory_order_relaxed) + monBlock * nominal);
+    }
 
     void push (const float* x, int n)
     {
@@ -303,6 +309,8 @@ void MonitorOutput::push (const float* samples, int numSamples) { impl->push (sa
 int MonitorOutput::getUnderruns() const noexcept { return impl->underruns.load(); }
 int MonitorOutput::getOverruns() const noexcept { return impl->overruns.load(); }
 double MonitorOutput::getRatioPpm() const noexcept { return impl->ppm.load(); }
+int MonitorOutput::getFillForTests() const noexcept { return impl->fifo.getNumReady(); }
+void MonitorOutput::setLatencyMode (int mode) noexcept { impl->latencyMode.store (juce::jlimit (0, 2, mode)); }
 
 void MonitorOutput::prepareForTest (double mainRate, double monitorRate, int monitorBlock)
 {

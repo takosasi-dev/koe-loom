@@ -19,7 +19,11 @@ public:
     void prepare (double sampleRate, int maxBlock);
     void reset() { detector.reset(); }
 
-    void analyse (const float* voice, int numSamples) override { detector.process (voice, numSamples); }
+    void analyse (const float* voice, int numSamples) override
+    {
+        detector.setRange (dsp::gVoicePitchMinHz.load (std::memory_order_relaxed), dsp::gVoicePitchMaxHz.load (std::memory_order_relaxed));
+        detector.process (voice, numSamples);
+    }
     float layerSemitones (int key, bool minor, int degree) const override;
 
     /** The detected fundamental (Hz, 0 = unvoiced), for tests and diagnostics. */

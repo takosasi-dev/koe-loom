@@ -7,6 +7,10 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include <array>
+#include <optional>
+#include <vector>
+
 namespace koe::ui
 {
 struct Palette
@@ -33,6 +37,36 @@ struct Theme
     static juce::String accentName (int accent);
     static juce::String toneName (int tone, bool dark);
 
+    // ---- S-03 外観 「配色」 (Settings::themeId, INTERFACES.md §8.4). "" = the Studio palette above ----
+    static const Palette& paper();            // 案 B: warm paper, navy accent, hairlines (docs/mockups/B-S01.dc.html)
+    static const Palette& mono();             // 案 C: near black, white as the accent fill (docs/mockups/C-S01.dc.html)
+    /** Uses p (a built-in or user theme) instead of the Studio palette until clearPalette(); call before (re)building
+        the UI. id is the Settings::themeId it came from; isDark() then answers the theme's dark flag. */
+    static void setPalette (const juce::String& id, const Palette& p, bool dark);
+    static void clearPalette();
+    /** The applied Settings::themeId ("" while Studio). */
+    static juce::String themeId();
+    /** A saved theme file changed: the next MainComponent::applyTheme rebuilds even though the id is the same. */
+    static void invalidate();
+
+    // ---- palette roles by name (theme files and the theme editor) ----
+    static constexpr int numRoles = 15;
+    static const char* roleKey (int role);    // the Palette member's name: "bg", "surface", ...
+    static juce::String roleName (int role);  // Japanese, for the editor
+    static juce::Colour& role (Palette& p, int role);
+    static juce::Colour role (const Palette& p, int role);
+    /** A full palette from the given roles. Missing ones are derived from bg / text / accent the way the background
+        tones are (the mock's proportions); none given = the mock's palette for dark / light. */
+    static Palette complete (const std::array<std::optional<juce::Colour>, numRoles>& given, bool dark);
+    /** "#RRGGBB" or "#AARRGGBB" (the leading # optional). */
+    static std::optional<juce::Colour> parseHex (const juce::String& text);
+    static juce::String toHex (juce::Colour c); // "#RRGGBB", or "#AARRGGBB" when not opaque
+
+    /** The project's contrast rules (AC-53): text, sub text, accent and status colours 4.5:1 and borders 3:1 on
+        bg / surface / raised; text on accent and on danger 4.5:1. Used by the tests and the editor's table. */
+    struct ContrastCheck { int fg, bg; double min, ratio; };
+    static std::vector<ContrastCheck> contrastChecks (const Palette& p);
+
     // ---- spacing (8 px grid, 4 for fine adjustment) ----
     static constexpr int space1 = 4, space2 = 8, space3 = 16, space4 = 24, space5 = 32;
     // ---- radii ----
@@ -53,7 +87,19 @@ struct Theme
     static juce::Font ui (float size, bool bold = false);
     static juce::Font mono (float size, bool bold = false);
 
-    /** Windows "animation effects" setting (F-14-6). When false, transitions are instant. */
+    /** Screen settings from S-03 外観 (Settings::animations, meterFps, ...), applied by MainComponent on change.
+        The defaults are the behaviour before these settings existed. */
+    struct Prefs
+    {
+        int animations = 0;          // 0 Windows に従う / 1 オン / 2 オフ
+        int meterFps = 30;           // F-08-1
+        float peakHoldMs = 1500.0f;  // LevelMeter peak hold
+        int knobSensitivity = 1;     // 0 ゆっくり / 1 標準 / 2 速い
+        bool knobWheel = true;
+    };
+    static Prefs& prefs();
+
+    /** Windows "animation effects" setting (F-14-6), unless S-03 外観 「画面の動き」 forces on / off. */
     static bool animationsEnabled();
     /** Decelerating easing for t in 0..1. */
     static float ease (float t) noexcept { return 1.0f - (1.0f - t) * (1.0f - t) * (1.0f - t); }

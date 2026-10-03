@@ -153,6 +153,8 @@ public:
     void addBlock (std::unique_ptr<juce::Component> c, std::function<int (int)> heightFor);
     void setHeaderComponent (std::unique_ptr<juce::Component> c, int width);
     int heightForWidth (int width) const;
+    /** Hidden items (S-03: closed 「詳細な設定」, search filter) take no space; false when every item is hidden. */
+    bool hasVisibleItems() const;
     void resized() override;
     void paint (juce::Graphics& g) override;
 
@@ -168,7 +170,7 @@ private:
     int headerCompW = 0;
 };
 
-/** A vertical stack of cards (the content of one settings section). */
+/** A vertical stack of cards (the content of one settings section). Hidden cards take no space. */
 class CardColumn : public juce::Component
 {
 public:
@@ -197,6 +199,15 @@ private:
     std::vector<Item> items;
     std::vector<std::unique_ptr<juce::Component>> owned;
     int gap;
+};
+
+// ---------------------------------------------------------------------------------------------
+/** Search box with a magnifier icon and a placeholder (S-06 "プリセットを探す", S-03 settings search). */
+class SearchField : public juce::TextEditor
+{
+public:
+    SearchField (const juce::String& placeholder, const juce::String& accessibleTitle);
+    void paintOverChildren (juce::Graphics& g) override;
 };
 
 // ---------------------------------------------------------------------------------------------

@@ -30,10 +30,7 @@ void PitchDetector::prepare (double sampleRate, const Settings& s)
     decim = std::max (1, int (std::lround (sampleRate / kAnalysisRate)));
     rate = sampleRate / decim;
     hop = std::max (1, s.hopSamples / decim);
-    minLag = std::max (2, int (std::floor (rate / s.fmaxHz)));
-    maxLag = int (std::ceil (rate / s.fminHz)) + 1;
-    longN = kIntegration * int (rate / kAnalysisRate + 0.5) + maxLag;
-    shortN = std::min (longN, std::max (int (rate * 0.0107), int (minLag * kPeriodsInWindow) + 2));
+    applyRange (s.fminHz, s.fmaxHz);
     gateN = std::max (8, int (rate * 0.005));
 
     int size = 1;
@@ -59,6 +56,26 @@ void PitchDetector::prepare (double sampleRate, const Settings& s)
     aa1.setLowpass (sampleRate, aaHz, 0.5412f); // 4th-order Butterworth
     aa2.setLowpass (sampleRate, aaHz, 1.3066f);
     reset();
+}
+
+void PitchDetector::applyRange (double fmin, double fmax) noexcept
+{
+    curMin = fmin;
+    curMax = fmax;
+    minLag = std::max (2, int (std::floor (rate / fmax)));
+    maxLag = int (std::ceil (rate / fmin)) + 1;
+    longN = kIntegration * int (rate / kAnalysisRate + 0.5) + maxLag;
+    shortN = std::min (longN, std::max (int (rate * 0.0107), int (minLag * kPeriodsInWindow) + 2));
+}
+
+void PitchDetector::setRange (double fmin, double fmax) noexcept
+{
+    // every buffer was sized for the prepared range: a narrower one only shortens the windows and lags
+    fmin = std::clamp (fmin, set.fminHz, set.fmaxHz);
+    fmax = std::clamp (fmax, fmin, set.fmaxHz);
+    if (fmin == curMin && fmax == curMax) return;
+    applyRange (fmin, fmax);
+    curN = std::clamp (curN, shortN, longN);
 }
 
 void PitchDetector::reset()

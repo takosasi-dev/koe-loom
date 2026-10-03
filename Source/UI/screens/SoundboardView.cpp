@@ -34,23 +34,25 @@ juce::String retriggerName (int i)
 }
 
 // =============================================================================================== PlayButton
-/** Round play button (mock 40 px). Filled with the accent while the slot plays. */
+/** Round play button (mock 40 px). While the slot plays: filled with the accent, a stop square, and pressing stops it. */
 class PlayButton : public juce::Button
 {
 public:
-    explicit PlayButton (int slot) : juce::Button (ja ("再生"))
+    explicit PlayButton (int s) : juce::Button ({}), slot (s)
     {
         setWantsKeyboardFocus (true);
-        setTitle (ja ("スロット ") + slotNumber (slot) + ja (" を再生"));
-        setTooltip (getTitle());
+        updateNames();
     }
 
     void setPlaying (bool p)
     {
         if (p == playing) return;
         playing = p;
+        updateNames();
         repaint();
     }
+
+    bool isPlaying() const { return playing; }
 
     void paintButton (juce::Graphics& g, bool highlighted, bool down) override
     {
@@ -72,12 +74,21 @@ public:
             g.drawEllipse (r.reduced (0.75f), Theme::borderWidth);
         }
         const float s = r.getWidth() * 0.4f;
-        drawIcon (g, playing ? Icon::playFilled : Icon::play, r.withSizeKeepingCentre (s, s).translated (s * 0.08f, 0.0f),
-                  playing ? p.onAccent : (isEnabled() ? p.text : p.textSub));
+        if (playing) drawIcon (g, Icon::stop, r.withSizeKeepingCentre (s, s), p.onAccent);
+        else drawIcon (g, Icon::play, r.withSizeKeepingCentre (s, s).translated (s * 0.08f, 0.0f), isEnabled() ? p.text : p.textSub);
         if (hasKeyboardFocus (true)) drawFocusRing (g, r, r.getHeight() * 0.5f);
     }
 
 private:
+    void updateNames()
+    {
+        const auto verb = playing ? ja ("停止") : ja ("再生");
+        setButtonText (verb);
+        setTitle (ja ("スロット ") + slotNumber (slot) + ja (" を") + verb);
+        setTooltip (getTitle());
+    }
+
+    int slot;
     bool playing = false;
 };
 
@@ -486,7 +497,7 @@ public:
             seg->setSelected (def.loop ? 1 : 0);
             seg->onChange = [this] (int i) { apply ([i] (SoundboardSlotDef& d) { d.loop = i == 1; }); };
             const int w = seg->preferredWidth() + Theme::space2;
-            addRow (*stack, "再生のしかた", ja ("ループは、「すべて停止」を押すまで繰り返します"), std::move (seg), w, w, [] (int) { return Theme::buttonH; });
+            addRow (*stack, "再生のしかた", ja ("ループは、停止ボタンか「すべて停止」を押すまで繰り返します"), std::move (seg), w, w, [] (int) { return Theme::buttonH; });
         }
         // retrigger
         {
@@ -562,7 +573,12 @@ struct SoundboardView::Impl final : juce::ChangeListener, private juce::Timer
         for (int i = 0; i < kSoundboardSlots; ++i)
         {
             auto* card = grid.cards.add (new SlotCard (i));
-            card->onPlay = [this, i] { sb().trigger (i); refresh(); };
+            card->onPlay = [this, i]
+            {
+                if (grid.cards[i]->isPlaying()) sb().stopSlot (i); // the button shows a stop square while the slot plays
+                else sb().trigger (i);
+                refresh();
+            };
             card->onChoose = [this, i] { chooseFile (i); };
             card->onSettings = [this, i] { openSettings (i); };
             grid.addAndMakeVisible (card);

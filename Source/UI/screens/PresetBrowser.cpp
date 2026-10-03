@@ -81,26 +81,6 @@ juce::String summaryText (const Preset& p)
 int layerCount (const Preset& p) { return p.hasShifter ? int (p.layers.size()) : 0; }
 
 // =============================================================================================== small parts
-/** Search box with a magnifier icon and a placeholder (mock "プリセットを探す"). */
-class SearchField : public juce::TextEditor
-{
-public:
-    SearchField()
-    {
-        setFont (Theme::ui (Theme::fontS));
-        setTextToShowWhenEmpty (ja ("プリセットを探す"), Theme::colours().textSub);
-        setIndents (Theme::space5 + Theme::space1, (Theme::controlH - int (Theme::fontS) - Theme::space1) / 2);
-        setTitle (ja ("プリセットを名前で探す"));
-    }
-
-    void paintOverChildren (juce::Graphics& g) override
-    {
-        juce::TextEditor::paintOverChildren (g);
-        const float s = float (m::iconS) * 0.9f;
-        drawIcon (g, Icon::search, juce::Rectangle<float> (float (Theme::space2 + Theme::space1), (float (getHeight()) - s) * 0.5f, s, s), Theme::colours().textSub);
-    }
-};
-
 class StarButton : public juce::Button
 {
 public:
@@ -855,7 +835,7 @@ struct PresetBrowser::Impl final : juce::ChangeListener, juce::KeyListener
     TextLabel title, favCount, listTitle, listCount, message;
     PillButton saveNew, importButton;
     IconButton close;
-    SearchField search;
+    SearchField search { ja ("プリセットを探す"), ja ("プリセットを名前で探す") };
     juce::OwnedArray<NavButton> categoryButtons;
     juce::Viewport viewport;
     RowList list;

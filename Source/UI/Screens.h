@@ -14,13 +14,18 @@
 
 namespace koe::ui
 {
-/** S-03 設定: デバイス / 環境設定 / ホットキー / 起動と常駐 / 外観 / 詳細 / 診断 (docs/mockups/A-S03*.dc.html). */
+/** S-03 設定: デバイス / 環境設定 / ホットキー / 起動と常駐 / 外観 / 詳細 / 診断 (docs/mockups/A-S03*.dc.html).
+    A search box above the sections; each card's 「詳細な設定」 opens the detailed rows (INTERFACES.md §7). */
 class SettingsView : public juce::Component
 {
 public:
     SettingsView (AppController& controller, Navigator& nav);
     ~SettingsView() override;
     void showSection (Navigator::SettingsSection section);
+    /** The search box's text (as if typed); empty returns to the current section. */
+    void setSearchText (const juce::String& text);
+    /** Ctrl+F focuses the search box, Esc clears it (MainComponent forwards these while S-03 is shown). */
+    bool keyPressed (const juce::KeyPress& key) override;
     void resized() override;
     void paint (juce::Graphics& g) override;
 
@@ -28,6 +33,9 @@ private:
     struct Impl;
     std::unique_ptr<Impl> impl;
 };
+
+/** Tests only: replaces S-03's file chooser for 書き出し (save = true) / 読み込み. Returns the file, or {} to cancel. */
+std::function<juce::File (bool save)>& settingsFileChooserForTests();
 
 /** S-02 サウンドボード: 12 slots (4x3) (docs/mockups/A-S02.dc.html). */
 class SoundboardView : public juce::Component

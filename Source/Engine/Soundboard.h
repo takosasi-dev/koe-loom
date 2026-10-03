@@ -62,9 +62,16 @@ public:
 
     // ---- playback ----
     void trigger (int slot);
+    void stopSlot (int slot);           // fades out every voice of that slot (loops too)
     void stopAll();
     void setDuckingDb (float db);       // 0 = off, down to -24
     void setTestTone (bool on);         // 440 Hz, -18 dBFS, to output only
+    // ---- detailed settings (S-03 詳細, INTERFACES.md §7); thread-safe, taken from the next render() ----
+    void setMaxVoices (int n);          // 1..8 sounding at once; the oldest gives way (F-06-9)
+    /** Fade of stop / stop all / restart / the oldest giving way (0..500 ms, default 5). Above 5 ms starts fade in too. */
+    void setFadeMs (float ms);
+    void setDuckTimes (float attackMs, float releaseMs); // time constants of the voice ducking (F-06-7)
+    void setMonitorIncludesSounds (bool on);             // global switch, ANDed with each slot's toMonitor
 
     /** Called on the message thread whenever a slot's state changes (loaded, failed, started, stopped). */
     std::function<void()> onStateChanged;

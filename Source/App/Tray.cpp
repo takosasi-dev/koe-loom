@@ -31,6 +31,24 @@ void TrayIcon::refresh()
     t << juce::String::fromUTF8 (" — ボイチェン ") << (controller.isVoiceChangerOn() ? "ON" : "OFF");
     if (controller.isMicMuted()) t << " / MUTE";
     setIconTooltip (t);
+
+    const auto news = newDangerNotices (controller.getNotices(), announced); // always, so turning it on never replays old ones
+    if (! news.empty() && controller.getSettings().trayNotifications && ! juce::Process::isForegroundProcess())
+        showInfoBubble ("KoeLoom", news.front().text);
+}
+
+std::vector<Notice> newDangerNotices (const std::vector<Notice>& now, juce::StringArray& seen)
+{
+    std::vector<Notice> fresh;
+    juce::StringArray keys;
+    for (auto& n : now)
+    {
+        if (n.level != NoticeLevel::danger) continue;
+        keys.add (n.key);
+        if (! seen.contains (n.key)) fresh.push_back (n);
+    }
+    seen = keys;
+    return fresh;
 }
 
 void TrayIcon::mouseDoubleClick (const juce::MouseEvent&)

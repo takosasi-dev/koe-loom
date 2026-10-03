@@ -57,8 +57,14 @@ public:
     VoiceProcessor();
     ~VoiceProcessor();
 
-    /** Shifter implementation for the main voice and the layers (default: Signalsmith). Call before prepare(). */
+    /** Shifter implementation for the main voice and the layers (default: createConverterShifter at the converter
+        quality). Call before prepare(). A factory set here ignores the converter quality. */
     void setShifterFactory (std::function<std::unique_ptr<IVoiceShifter>()> factory);
+    /** Message thread. Converter quality 0..2 (S-03 詳細, createConverterShifter). After prepare() this builds a new
+        set of converters (main + layers) and hands it to the audio thread, which warms it up and crossfades to it
+        (click-free, allocation-free). The reported latency follows at once. */
+    void setConverterQuality (int quality);
+    int getConverterQuality() const noexcept { return quality; }
 
     /** Allocates everything. Not real-time safe. Also starts the 100 ms fade-in (F-09-5). */
     void prepare (double sampleRate, int maxBlockSize);
@@ -74,6 +80,17 @@ public:
     void setNoiseSuppression (bool on, float mix) noexcept { noiseOn.store (on); noiseMix.store (kNoiseMix.clamp (mix)); }
     void setGate (bool on, float thresholdDb, float attackMs, float holdMs, float releaseMs) noexcept;
     void setOutputGainDb (float db) noexcept { outputGainDb.store (kOutputGainDb.clamp (db)); }
+
+    // ---- detailed settings (S-03 「詳細な設定」, INTERFACES.md §7) ----
+    /** Input low cut (12 dB/oct) after the input gain, before noise suppression. Crossfaded on toggle, cutoff glides. */
+    void setHighPass (bool on, float hz) noexcept { highPassHz.store (kHighPassHz.clamp (hz)); highPassOn.store (on); }
+    /** Automatic input level after noise suppression, before the gate: slow (rises ~2 s, falls ~0.3 s), up to
+        maxGainDb of boost and 24 dB of cut, holds while the input is below -50 dBFS RMS. */
+    void setAgc (bool on, float targetDb, float maxGainDb) noexcept;
+    /** Output limiter ceiling (glides over ~10 ms) and release. */
+    void setLimiter (float ceilingDb, float releaseMs) noexcept;
+    /** Length of the chain swap crossfade (F-04-6, default 30 ms) for the next requestChain(). */
+    void setChainCrossfadeMs (float ms) noexcept { chainFadeMs.store (kPresetCrossfadeMs.clamp (ms)); }
 
     // ---- voice (F-02, F-08-8) ----
     void setVoiceChangerOn (bool on) noexcept { voiceOn.store (on); }
@@ -95,7 +112,7 @@ public:
     void autoStopLayers() noexcept;
     bool areLayersAutoStopped() const noexcept { return layersAutoStopped.load(); }
     /** Audio thread (watchdog): is any layer converter currently processing? */
-    bool anyLayerRunning() const noexcept { for (bool r : layerRunning) if (r) return true; return false; }
+    bool anyLayerRunning() const noexcept;
     void clearLayerAutoStop() noexcept { layersAutoStopped.store (false); }
     void setScaleLayerPitch (IScaleLayerPitch* provider) noexcept { scalePitch.store (provider); }
 
@@ -119,7 +136,8 @@ public:
     MeterValues fetchMeters() noexcept;
     bool isGateOpen() const noexcept { return gateOn.load() ? gate.isOpen() : true; }
     bool fetchLimiterActive() noexcept { return limiter.fetchAndClearActive(); }
-    /** Algorithm latency (samples): limiter + noise suppression (if on) + shifter and chain (if voice on). */
+    /** Algorithm latency (samples): limiter + noise suppression (if on) + shifter and chain (if voice on).
+        Message thread view: follows setConverterQuality() and requestChain() at once. */
     int getLatencySamples() const noexcept;
     int getShifterLatencySamples() const noexcept { return shifterLatency; }
     long long getNonFiniteInputCount() const noexcept { return nanInputs.load(); }
@@ -130,12 +148,40 @@ public:
     void setTestBusyMicros (int us) noexcept { testBusyMicros.store (us); }
 
 private:
+    /** The converters of one quality (main voice + layers) and their audio-thread state. Built on the message
+        thread (makeShifterSet), run and swapped on the audio thread. */
+    struct ShifterSet
+    {
+        std::unique_ptr<IVoiceShifter> main;
+        std::array<std::unique_ptr<IVoiceShifter>, kMaxLayers> layers;
+        int latency = 0;
+        bool mainRunning = false;
+        int mainWarmLeft = 0;
+        dsp::Ramp mainShiftMix;
+        std::array<bool, kMaxLayers> layerRunning {};
+        std::array<int, kMaxLayers> layerWarmLeft {};
+        std::array<dsp::Ramp, kMaxLayers> layerGain;
+    };
+    /** Per-block voice parameters, read once and shared by the running and the incoming converter set. */
+    struct VoiceBlock
+    {
+        bool desired = false;
+        float pitch = 0.0f, formant = 0.0f;
+        struct Layer { bool act = false, cut = false; float pitch = 0.0f, formant = 0.0f, gain = 0.0f; };
+        std::array<Layer, kMaxLayers> layers {};
+    };
+
     void processBlock (const float* in, float* outL, float* outR, int n);
     void processVoicePath (float* x, int n);
+    std::unique_ptr<ShifterSet> makeShifterSet (int q) const;
+    void renderShifters (ShifterSet& s, const float* x, float* out, int n, const VoiceBlock& v);
+    bool retireCurrentSet() noexcept;
 
-    std::function<std::unique_ptr<IVoiceShifter>()> shifterFactory;
+    std::function<std::unique_ptr<IVoiceShifter> (int)> shifterFactory;
     double sampleRate = kSampleRate;
     int maxBlock = kMaxBlockSize;
+    int quality = 1;          // message thread
+    bool prepared = false;    // message thread
 
     // ---- control atomics ----
     std::atomic<float> inputGainDb { 0.0f }, noiseMix { 1.0f }, outputGainDb { 0.0f }, trimDb { 0.0f };
@@ -155,22 +201,28 @@ private:
     std::atomic<IMonitorSink*> monitor { nullptr };
     std::atomic<bool> fadeInRequest { false };
     std::atomic<int> testBusyMicros { 0 };
+    std::atomic<bool> highPassOn { false }, agcOn { false };
+    std::atomic<float> highPassHz { kHighPassHz.def }, agcTargetDb { kAgcTargetDb.def }, agcMaxGainDb { kAgcMaxGainDb.def };
+    std::atomic<float> limiterCeilingDb { kLimiterCeilingDb }, limiterReleaseMs { kLimiterReleaseMs.def };
+    std::atomic<float> chainFadeMs { kChainSwapFadeMs };
 
     // ---- DSP ----
     NoiseSuppressor ns;
     NoiseGate gate;
     Limiter limiter;
-    std::unique_ptr<IVoiceShifter> mainShifter;
-    std::array<std::unique_ptr<IVoiceShifter>, kMaxLayers> layerShifters;
+    dsp::Biquad highPass;
+    float highPassCurHz = kHighPassHz.def;
+    float agcPower = 0.0f, agcPowerCoeff = 0.0f, agcGainDb = 0.0f;
+    std::unique_ptr<ShifterSet> cur;                 // audio thread owns (prepare() builds it)
+    ShifterSet* next = nullptr;                      // audio thread owns: warming up / crossfading in
+    std::atomic<ShifterSet*> pendingSet { nullptr }; // message thread -> audio thread
+    std::array<std::atomic<ShifterSet*>, 4> retiredSets {};
+    int swapWait = 0;
+    dsp::Ramp swapFade;
     dsp::DelayLine dryDelay;
-    int shifterLatency = 0;
+    int shifterLatency = 0;  // message thread view (the latest requested set)
 
-    dsp::Ramp inGain, outGain, trimGain, muteGain, voiceMix, nsMix, startFade, mainShiftMix, duckGain;
-    std::array<dsp::Ramp, kMaxLayers> layerGain;
-    bool mainRunning = false;
-    int mainWarmLeft = 0;
-    std::array<bool, kMaxLayers> layerRunning {};
-    std::array<int, kMaxLayers> layerWarmLeft {};
+    dsp::Ramp inGain, outGain, trimGain, muteGain, voiceMix, nsMix, startFade, duckGain, highPassMix, agcGain;
     int layerCutSteps = 1;
     bool voicePathRunning = false;
 
@@ -183,7 +235,7 @@ private:
     dsp::Ramp chainFade;
 
     // ---- buffers (prepared) ----
-    std::vector<float> bufIn, bufNs, bufVoice, bufMain, bufShift, bufLayer, bufChainOld, bufMon, bufAuxOut;
+    std::vector<float> bufIn, bufNs, bufVoice, bufMain, bufNext, bufShift, bufLayer, bufChainOld, bufMon, bufAuxOut;
 
     // ---- meters ----
     std::atomic<float> inPeak { 0.0f }, outPeak { 0.0f };

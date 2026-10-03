@@ -52,6 +52,24 @@ inline constexpr Range kLayerDegree { -7.0f, 7.0f, 2.0f };        // F-02-11 (0 
 inline constexpr float kOutputGainStepDb = 0.5f;
 inline constexpr float kPitchStep = 0.1f;
 
+// ---- detailed settings (S-03 「詳細な設定」, owner request 2026-10-03). Defaults = the behaviour before;
+//      an owner who finds the old behaviour used another value corrects the default here. ----
+inline constexpr Range kPitchMinHz { 60.0f, 300.0f, 60.0f };        // pitch detection range (scale layers, autopitch)
+inline constexpr Range kPitchMaxHz { 300.0f, 1000.0f, 1000.0f };
+inline constexpr Range kHighPassHz { 20.0f, 300.0f, 80.0f };        // input low cut (off by default)
+inline constexpr Range kAgcTargetDb { -30.0f, -10.0f, -18.0f };     // automatic input level (off by default)
+inline constexpr Range kAgcMaxGainDb { 0.0f, 24.0f, 12.0f };
+inline constexpr Range kLimiterCeilingSetDb { -6.0f, -0.1f, -1.0f }; // default = kLimiterCeilingDb
+inline constexpr Range kLimiterReleaseMs { 10.0f, 1000.0f, 60.0f };
+inline constexpr Range kPresetCrossfadeMs { 10.0f, 200.0f, 30.0f };  // default = kChainSwapFadeMs (F-04-6)
+inline constexpr Range kSoundFadeMs { 0.0f, 500.0f, 5.0f };          // soundboard start / stop / stop-all fade
+inline constexpr Range kDuckAttackMs { 1.0f, 500.0f, 20.0f };
+inline constexpr Range kDuckReleaseMs { 10.0f, 2000.0f, 300.0f }; // the soundboard always used 0.3 s
+inline constexpr Range kPttReleaseMs { 0.0f, 1000.0f, 200.0f };      // push-to-talk tail after the key is released
+inline constexpr Range kMeterPeakHoldMs { 0.0f, 3000.0f, 1500.0f };  // LevelMeter held 45 frames at 30 fps (F-08-1)
+inline constexpr Range kTooltipDelayMs { 200.0f, 2000.0f, 500.0f };  // F-13-6: 500 ms
+inline constexpr int kUiScalePercents[] = { 90, 100, 110, 125, 150 };
+
 // ---- output safety (§9.2) ----
 inline constexpr float kLimiterCeilingDb = -1.0f;
 inline constexpr float kOutputGainWarnDb = 6.0f;                  // F-12-4

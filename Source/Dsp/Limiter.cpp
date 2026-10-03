@@ -9,9 +9,14 @@ namespace koe
 {
 void Limiter::prepare (double sampleRate, float ceilingDb, float lookaheadMs, float releaseMs)
 {
+    rate = sampleRate;
     ceiling = dsp::dbToGain (ceilingDb);
+    ceilingTarget.store (ceiling);
+    ceilingGlide = dsp::onePoleCoeff (10.0f, sampleRate);
     lookahead = std::max (1, int (sampleRate * lookaheadMs * 0.001));
     releaseCoeff = dsp::onePoleCoeff (releaseMs, sampleRate);
+    releaseMsCur = releaseMs;
+    releaseTarget.store (releaseMs);
     delay.assign (size_t (lookahead), 0.0f);
     // the min window must also cover the sample leaving the delay line this tick -> one longer
     reqRing.assign (size_t (lookahead + 1), 1.0f);
@@ -33,8 +38,19 @@ void Limiter::reset()
 void Limiter::process (float* x, int n)
 {
     bool reduced = false;
+    if (const float r = releaseTarget.load (std::memory_order_relaxed); r != releaseMsCur)
+    {
+        releaseMsCur = r;
+        releaseCoeff = dsp::onePoleCoeff (r, rate);
+    }
+    const float ceilingWant = ceilingTarget.load (std::memory_order_relaxed);
     for (int i = 0; i < n; ++i)
     {
+        if (ceiling != ceilingWant) // a new ceiling (S-03 詳細): glide, so the clamp below never steps
+        {
+            ceiling = ceilingWant + ceilingGlide * (ceiling - ceilingWant);
+            if (std::abs (ceiling - ceilingWant) < 1.0e-6f) ceiling = ceilingWant;
+        }
         float in = x[i];
         if (! std::isfinite (in)) in = 0.0f;
         const float a = std::abs (in);

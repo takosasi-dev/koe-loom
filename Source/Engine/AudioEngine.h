@@ -37,10 +37,20 @@ public:
     DeviceCaps getCaps (const juce::String& input, const juce::String& output) const;
 
     /** Opens input+output (closing any previous device), prepares the processor and starts.
-        Returns an error string (Japanese) or empty on success (E-04/E-05 handled by the caller's text). */
-    juce::String open (const juce::String& input, const juce::String& output, double sampleRate, int bufferSize);
+        Returns an error string (Japanese) or empty on success (E-04/E-05 handled by the caller's text).
+        exclusive: WASAPI exclusive mode (S-03 詳細); no fallback here, the caller decides. */
+    juce::String open (const juce::String& input, const juce::String& output, double sampleRate, int bufferSize,
+                       bool exclusive = false);
     void close();
     bool isRunning() const noexcept { return running.load(); }
+    bool isExclusive() const noexcept { return running.load() && openedExclusive; }
+
+    /** Settings::inputChannel: 0 = average of the open channels (the first two; the only one on a mono device),
+        1 = left, 2 = right (left on a mono device), 3 = average of both. Any thread. */
+    void setInputChannel (int mode) noexcept { inputChannel.store (mode); }
+    /** The callback's input mix: n samples from pos of the device channels into mono, by the mode above.
+        Returns how many channels were used (0 = no input channel). Public for tests. */
+    static int mixInput (const float* const* in, int numIn, int pos, int n, int mode, float* mono) noexcept;
 
     // ---- status (any thread) ----
     double getSampleRate() const noexcept { return currentRate.load(); }
@@ -68,7 +78,9 @@ private:
     void audioDeviceListChanged() override;
 
     VoiceProcessor& vp;
-    std::unique_ptr<juce::AudioIODeviceType> type;
+    std::unique_ptr<juce::AudioIODeviceType> type, exclusiveType; // exclusiveType: made on first use
+    bool openedExclusive = false;
+    std::atomic<int> inputChannel { 0 };
     std::unique_ptr<juce::AudioIODevice> device;
 
     std::vector<float> mono, outL, outR;

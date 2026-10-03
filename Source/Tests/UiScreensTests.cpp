@@ -8,9 +8,16 @@
 #include "Core/Constants.h"
 #include "Core/Paths.h"
 #include "Platform/Hotkeys.h"
+#include "Tests/TestUtil.h"
+#include "UI/MainComponent.h"
 #include "UI/Screens.h"
+#include "UI/ThemeLibrary.h"
 #include "UI/Widgets.h"
+#include "UI/main/VoicePage.h"
 #include "UI/screens/Common.h"
+#include "UI/screens/ThemeEditor.h"
+
+#include <juce_gui_extra/juce_gui_extra.h>
 
 #include <typeinfo>
 
@@ -74,7 +81,8 @@ int checkLayout (juce::UnitTest& t, juce::Component& root, const juce::String& w
     std::function<void (juce::Component&)> walk = [&] (juce::Component& parent)
     {
         if (dynamic_cast<juce::TextEditor*> (&parent) != nullptr || dynamic_cast<juce::ComboBox*> (&parent) != nullptr
-            || dynamic_cast<juce::Slider*> (&parent) != nullptr || dynamic_cast<juce::ScrollBar*> (&parent) != nullptr)
+            || dynamic_cast<juce::Slider*> (&parent) != nullptr || dynamic_cast<juce::ScrollBar*> (&parent) != nullptr
+            || dynamic_cast<juce::ColourSelector*> (&parent) != nullptr)
             return;
         juce::Array<juce::Component*> vis;
         for (auto* ch : parent.getChildren())
@@ -325,6 +333,8 @@ public:
             }
         }
 
+        detailedSettings();
+
         beginTest ("S-02 layout, ducking, one-time hint (F-13-7) and the slot options (F-06-4/5)");
         {
             freshUiDataDir();
@@ -389,6 +399,98 @@ public:
             again.setSize (Theme::defaultWidth, Theme::defaultHeight / 2);
             again.setVisible (true);
             expect (! findById (again, "soundboard.hint")->isVisible(), "hint only once");
+        }
+
+        beginTest ("S-02: a playing slot's round button shows stop (「停止」) and pressing it stops that slot (owner 2026-10-03)");
+        {
+            freshUiDataDir();
+            AppController c (false);
+            c.startup();
+            auto& sb = c.getSoundboard();
+            const auto wav = paths::dataDir().getChildFile ("loop.wav");
+            expect (test::writeWav (wav, std::vector<float> (48000, 0.25f)));
+            for (int s : { 0, 1 })
+            {
+                sb.assignFile (s, wav);
+                auto d = sb.getSlotDef (s);
+                d.loop = true;
+                sb.setSlotDef (s, d);
+            }
+            const auto until = juce::Time::getMillisecondCounter() + 5000;
+            while ((sb.getSlotState (0).status == SoundSlotState::Status::loading || sb.getSlotState (1).status == SoundSlotState::Status::loading)
+                   && juce::Time::getMillisecondCounter() < until)
+                juce::Thread::sleep (5);
+            std::vector<float> out (480), mon (480);
+            auto renderAndNotify = [&]
+            {
+                for (int b = 0; b < 4; ++b) sb.render (out.data(), mon.data(), 480);
+                c.sendChangeMessage(); // what the soundboard's state timer does
+                c.dispatchPendingMessages();
+            };
+            FakeNavigator nav;
+            SoundboardView v (c, nav);
+            v.setSize (Theme::defaultWidth, Theme::defaultHeight);
+            auto* play = find<juce::Button> (v, "soundboard.play.1");
+            expect (play != nullptr);
+            if (play != nullptr)
+            {
+                expect (play->isEnabled());
+                expectEquals (play->getButtonText(), ja ("再生"));
+                expectEquals (play->getTitle(), ja ("スロット 01 を再生"));
+                expectEquals (play->getTooltip(), play->getTitle());
+
+                play->onClick(); // not playing: triggers
+                sb.trigger (1);  // another slot keeps playing through the stop
+                renderAndNotify();
+                expect (sb.getSlotState (0).playing && sb.getSlotState (1).playing);
+                expectEquals (play->getButtonText(), ja ("停止"));
+                expectEquals (play->getTitle(), ja ("スロット 01 を停止"));
+                expectEquals (play->getTooltip(), play->getTitle());
+                expectEquals (find<juce::Button> (v, "soundboard.play.2")->getButtonText(), ja ("停止"));
+
+                play->onClick(); // playing: stops that slot only
+                renderAndNotify();
+                expect (! sb.getSlotState (0).playing, "slot 1 stopped");
+                expect (sb.getSlotState (1).playing, "slot 2 keeps playing");
+                expectEquals (play->getButtonText(), ja ("再生"));
+                expectEquals (play->getTitle(), ja ("スロット 01 を再生"));
+            }
+            sb.stopAll();
+            sb.render (out.data(), mon.data(), 480);
+        }
+
+        beginTest ("hotkey soundStop.N stops that slot only; sound.N still triggers (owner 2026-10-03)");
+        {
+            freshUiDataDir();
+            AppController c (false);
+            c.startup();
+            auto& sb = c.getSoundboard();
+            const auto wav = paths::dataDir().getChildFile ("loop.wav");
+            expect (test::writeWav (wav, std::vector<float> (48000, 0.25f)));
+            for (int s : { 2, 3 })
+            {
+                sb.assignFile (s, wav);
+                auto d = sb.getSlotDef (s);
+                d.loop = true;
+                sb.setSlotDef (s, d);
+            }
+            const auto until = juce::Time::getMillisecondCounter() + 5000;
+            while ((sb.getSlotState (2).status == SoundSlotState::Status::loading || sb.getSlotState (3).status == SoundSlotState::Status::loading)
+                   && juce::Time::getMillisecondCounter() < until)
+                juce::Thread::sleep (5);
+            std::vector<float> out (480), mon (480);
+            auto render = [&] { for (int b = 0; b < 4; ++b) sb.render (out.data(), mon.data(), 480); };
+            c.performAction ("sound.3");
+            c.performAction ("sound.4");
+            render();
+            expect (sb.getSlotState (2).playing && sb.getSlotState (3).playing);
+            c.performAction ("soundStop.3");
+            render();
+            expect (! sb.getSlotState (2).playing, "soundStop.3 stops slot 3");
+            expect (sb.getSlotState (3).playing, "slot 4 keeps playing");
+            c.performAction ("soundStop.4");
+            render();
+            expect (! sb.getSlotState (3).playing);
         }
 
         beginTest ("S-06: category counts (AC-44), search, favourites, built-ins only duplicate (F-05-2, AC-66)");
@@ -590,9 +692,455 @@ public:
             }
         }
     }
+
+private:
+    /** Shown inside root: the component and every parent up to root are visible. */
+    static bool shown (juce::Component* comp, juce::Component& root)
+    {
+        if (comp == nullptr) return false;
+        for (auto* p = comp; p != nullptr; p = p->getParentComponent())
+        {
+            if (p == &root) return true;
+            if (! p->isVisible()) return false;
+        }
+        return false;
+    }
+
+    /** The control with this id in any section (each section is built once, but only the shown one is parented). */
+    static juce::Component* findInSections (SettingsView& v, const juce::String& id)
+    {
+        for (auto s : kSections)
+        {
+            v.showSection (s);
+            if (auto* comp = findById (v, id)) return comp;
+        }
+        return nullptr;
+    }
+
+    /** Turns a settings control to another value the way a click / drag would. */
+    void operate (juce::Component* comp, const juce::String& key)
+    {
+        if (auto* t = dynamic_cast<ToggleSwitch*> (comp))
+        {
+            t->setToggleState (! t->getToggleState(), juce::dontSendNotification);
+            t->onClick();
+        }
+        else if (auto* seg = dynamic_cast<Segmented*> (comp))
+        {
+            const int n = seg->getNumChildComponents();
+            seg->getButton ((seg->getSelected() + 1) % n)->onClick();
+        }
+        else if (auto* cb = dynamic_cast<juce::ComboBox*> (comp)) cb->setSelectedId (cb->getSelectedId() == 1 ? 2 : 1, juce::sendNotificationSync);
+        else if (auto* sl = dynamic_cast<juce::Slider*> (comp))
+            sl->setValue (sl->getValue() >= sl->getMaximum() ? sl->getMinimum() : sl->getMaximum(), juce::sendNotificationSync);
+        else expect (false, key + ": unknown control");
+    }
+
+    void detailedSettings()
+    {
+        beginTest ("S-03 wave 4: every detailed setting has a row whose control changes the Settings value (INTERFACES.md 7.2)");
+        {
+            freshUiDataDir();
+            AppController c (false);
+            c.startup();
+            FakeNavigator nav;
+            SettingsView v (c, nav);
+            v.setSize (Theme::defaultWidth - Theme::space5, Theme::defaultHeight - Theme::space5 * 3);
+            struct Field { const char* key; std::function<double (const Settings&)> get; };
+#define KOE_FIELD(k) Field { #k, [] (const Settings& s) { return double (s.k); } }
+            const Field fields[] = {
+                // audio (wave4/audio)
+                KOE_FIELD (converterQuality), KOE_FIELD (pitchMinHz), KOE_FIELD (pitchMaxHz), KOE_FIELD (highPassOn), KOE_FIELD (highPassHz),
+                KOE_FIELD (agcOn), KOE_FIELD (agcTargetDb), KOE_FIELD (agcMaxGainDb), KOE_FIELD (limiterCeilingDb), KOE_FIELD (limiterReleaseMs),
+                KOE_FIELD (presetCrossfadeMs), KOE_FIELD (soundboardMaxVoices), KOE_FIELD (soundFadeMs), KOE_FIELD (duckAttackMs),
+                KOE_FIELD (duckReleaseMs), KOE_FIELD (monitorIncludeSoundboard),
+                // devices, hotkeys, app (wave4/platform)
+                KOE_FIELD (wasapiExclusive), KOE_FIELD (inputChannel), KOE_FIELD (monitorLatency), KOE_FIELD (reconnectSeconds),
+                KOE_FIELD (pushToTalk), KOE_FIELD (pttReleaseMs), KOE_FIELD (hotkeyToasts), KOE_FIELD (favoriteWrap), KOE_FIELD (startupVoice),
+                KOE_FIELD (startupLastPreset), KOE_FIELD (closeAction), KOE_FIELD (trayNotifications), KOE_FIELD (logLevel), KOE_FIELD (logKeepDays),
+                // screen (wave4/ui)
+                KOE_FIELD (uiScalePercent), KOE_FIELD (alwaysOnTop), KOE_FIELD (animations), KOE_FIELD (meterFps), KOE_FIELD (meterPeakHoldMs),
+                KOE_FIELD (tooltipDelayMs), KOE_FIELD (knobSensitivity), KOE_FIELD (knobWheel),
+                // updates (wave4/update)
+                KOE_FIELD (autoUpdate), KOE_FIELD (updateIncludePrerelease),
+            };
+#undef KOE_FIELD
+            expectEquals (int (std::size (fields)), 38 + 2, "38 rows + settingsShowDetails (the disclosure) = 39; 2 update toggles");
+            c.updateSettings ([] (Settings& s) { s.settingsShowDetails = true; });
+            c.dispatchPendingMessages();
+            for (auto& f : fields)
+            {
+                auto* comp = findInSections (v, juce::String ("settings.") + f.key);
+                expect (comp != nullptr, juce::String ("row for ") + f.key);
+                if (comp == nullptr) continue;
+                expect (shown (comp, v), juce::String (f.key) + " shown with 「詳細な設定」 open");
+                const double before = f.get (c.getSettings());
+                operate (comp, f.key);
+                expect (f.get (c.getSettings()) != before, juce::String (f.key) + " changed by its control");
+                if (auto* s = dynamic_cast<juce::Slider*> (comp)) expect (s->getTextFromValue (s->getValue()).isNotEmpty());
+            }
+        }
+
+        beginTest ("S-03 wave 4: 「詳細な設定」 hides detailed rows, opens every card, and the state is saved (settingsShowDetails)");
+        {
+            freshUiDataDir();
+            AppController c (false);
+            c.startup();
+            FakeNavigator nav;
+            {
+                SettingsView v (c, nav);
+                v.setSize (Theme::defaultWidth, Theme::defaultHeight);
+                v.showSection (Navigator::SettingsSection::environment);
+                expect (shown (findById (v, "settings.outputGain"), v), "everyday row");
+                expect (! shown (findById (v, "settings.agcOn"), v), "detailed rows hidden by default");
+                auto* d = find<PillButton> (v, "settings.details.environment");
+                expect (d != nullptr && shown (d, v));
+                if (d == nullptr) return;
+                expect (d->getButtonText().startsWith (ja ("詳細な設定（")), d->getButtonText());
+                d->onClick();
+                expect (c.getSettings().settingsShowDetails, "saved in the settings");
+                c.dispatchPendingMessages();
+                expect (shown (findById (v, "settings.agcOn"), v), "opened");
+                expectEquals (d->getButtonText(), ja ("詳細な設定を閉じる"));
+                v.showSection (Navigator::SettingsSection::appearance);
+                expect (shown (findById (v, "settings.alwaysOnTop"), v), "one state for every card");
+                for (auto win : kWindows)
+                    for (int s = 0; s < 7; ++s)
+                    {
+                        v.setBounds (pageArea (win, false).withPosition (0, 0));
+                        v.showSection (kSections[s]);
+                        checkLayout (*this, v, juce::String ("S-03 details open ") + kSectionNames[s] + " " + win.name);
+                    }
+            }
+            SettingsView again (c, nav);
+            again.setSize (Theme::defaultWidth, Theme::defaultHeight);
+            again.showSection (Navigator::SettingsSection::environment);
+            expect (shown (findById (again, "settings.agcOn"), again), "a new S-03 opens with the details open");
+        }
+
+        beginTest ("S-03 wave 4: search finds detailed rows by name and alias, groups by section, empty message, Esc / Ctrl+F");
+        {
+            freshUiDataDir();
+            AppController c (false);
+            c.startup();
+            FakeNavigator nav;
+            SettingsView v (c, nav);
+            v.setSize (Theme::defaultWidth, Theme::defaultHeight);
+            v.showSection (Navigator::SettingsSection::devices);
+            auto only = [&] (const char* query, std::initializer_list<const char*> expected, std::initializer_list<const char*> absent)
+            {
+                v.setSearchText (juce::String::fromUTF8 (query));
+                for (auto* id : expected) expect (shown (findById (v, juce::String ("settings.") + id), v), juce::String::fromUTF8 (query) + " -> " + id);
+                for (auto* id : absent) expect (! shown (findById (v, juce::String ("settings.") + id), v), juce::String::fromUTF8 (query) + " hides " + id);
+            };
+            only ("PTT", { "pushToTalk", "pttReleaseMs" }, { "agcOn", "outputGain" });
+            only ("プッシュトゥトーク", { "pushToTalk" }, { "wasapiExclusive" });
+            only ("ぷっしゅ", { "pushToTalk" }, {});
+            only ("排他", { "wasapiExclusive" }, { "pushToTalk", "agcOn" });
+            only ("AGC", { "agcOn", "agcTargetDb", "agcMaxGainDb" }, { "highPassOn" });
+            only ("ＡＧＣ", { "agcOn" }, {});
+            only ("自動音量", { "agcOn" }, { "wasapiExclusive" });
+            only ("アップデート", { "autoUpdate", "updateIncludePrerelease", "checkUpdates" }, { "agcOn" });
+            only ("遅延", { "wasapiExclusive", "converterQuality", "bufferSize" }, { "knobWheel" });
+            expect (containsText (v, ja ("デバイス")) && containsText (v, ja ("環境設定")) && containsText (v, ja ("詳細")), "section names shown");
+            for (auto win : kWindows)
+            {
+                v.setBounds (pageArea (win, false).withPosition (0, 0));
+                checkLayout (*this, v, juce::String ("S-03 search ") + win.name);
+            }
+            v.setSearchText ("zzzz-no-such-setting");
+            auto* empty = find<TextLabel> (v, "settings.search.empty");
+            expect (empty != nullptr && shown (empty, v) && empty->getText().contains (ja ("見つかりませんでした")), "friendly empty result");
+            expect (press (&v, juce::KeyPress (juce::KeyPress::escapeKey)), "Esc clears the search");
+            auto* search = find<juce::TextEditor> (v, "settings.search");
+            expect (search != nullptr && search->getText().isEmpty());
+            expect (shown (findById (v, "settings.output"), v), "back to the section");
+            expect (! shown (findById (v, "settings.wasapiExclusive"), v), "details closed again outside the search");
+            expect (press (&v, juce::KeyPress ('f', juce::ModifierKeys::ctrlModifier, 0)), "Ctrl+F goes to the search box");
+            v.setSearchText ("PTT");
+            v.showSection (Navigator::SettingsSection::startup);
+            expect (search->getText().isEmpty() && shown (findById (v, "settings.closeAction"), v), "a section button leaves the search");
+        }
+
+        beginTest ("S-03 wave 4: 書き出し / 読み込み report in a toast, すべて初期化 asks first; updates row; S-04 asks about updates");
+        {
+            freshUiDataDir();
+            AppController c (false);
+            c.startup();
+            FakeNavigator nav;
+            SettingsView v (c, nav);
+            v.setSize (Theme::defaultWidth, Theme::defaultHeight);
+            v.showSection (Navigator::SettingsSection::advanced);
+            const auto file = paths::dataDir().getChildFile ("exported-settings.json");
+            juce::StringArray asked;
+            settingsFileChooserForTests() = [&] (bool save) { asked.add (save ? "save" : "open"); return file; };
+            if (auto* b = find<juce::Button> (v, "settings.export")) b->onClick();
+            else expect (false, "settings.export");
+            expectEquals (asked.joinIntoString (","), juce::String ("save"));
+            expectEquals (nav.toasts.size(), 1, "書き出し reports (success or the controller's error)");
+            if (auto* b = find<juce::Button> (v, "settings.import")) b->onClick();
+            else expect (false, "settings.import");
+            expectEquals (nav.toasts.size(), 2, "読み込み reports");
+            settingsFileChooserForTests() = [&] (bool) { return juce::File(); }; // cancel: nothing happens
+            if (auto* b = find<juce::Button> (v, "settings.import")) b->onClick();
+            expectEquals (nav.toasts.size(), 2);
+            settingsFileChooserForTests() = nullptr;
+
+            if (auto* b = find<juce::Button> (v, "settings.reset")) b->onClick();
+            expect (nav.calls.contains ("overlay:settings.resetConfirm"), "a confirmation first");
+            juce::Button* ok = nullptr;
+            if (nav.overlay != nullptr)
+                collect (*nav.overlay, [&] (juce::Component& comp)
+                {
+                    if (auto* b = dynamic_cast<juce::Button*> (&comp); b != nullptr && b->getButtonText() == ja ("すべて初期化")) ok = b;
+                });
+            expect (ok != nullptr, "すべて初期化 in the confirmation");
+            if (ok != nullptr) ok->onClick();
+            expect (nav.toasts.contains (ja ("設定を最初の状態に戻しました。")));
+
+            v.showSection (Navigator::SettingsSection::startup);
+            auto* state = find<TextLabel> (v, "settings.updateState");
+            expect (state != nullptr && state->getText().isNotEmpty(), "update state line");
+            expect (containsText (v, juce::String ("v") + KOELOOM_VERSION_STRING), "current version");
+            if (auto* b = find<juce::Button> (v, "settings.checkUpdates")) b->onClick(); // stub today: no network in any case
+            else expect (false, "settings.checkUpdates");
+
+            SetupWizard w (c, nav, [] (bool) {});
+            w.setSize (Theme::defaultWidth, Theme::defaultHeight);
+            if (auto* next = find<juce::Button> (w, "setup.next")) next->onClick();
+            auto* t = find<ToggleSwitch> (w, "setup.autoUpdate");
+            expect (t != nullptr && ! t->getToggleState(), "S-04 asks, OFF by default");
+            if (t != nullptr)
+            {
+                t->setToggleState (true, juce::dontSendNotification);
+                t->onClick();
+                expect (c.getSettings().autoUpdate);
+            }
+            for (auto win : kWindows)
+            {
+                w.setSize (win.w, win.h);
+                checkLayout (*this, w, juce::String ("S-04 step 2 with the update question ") + win.name);
+            }
+        }
+    }
 };
 
 static UiScreensTests uiScreensTests;
+
+// =============================================================================================== S-03 外観 配色 / theme editor (wave5/themes)
+class UiThemeScreensTests : public juce::UnitTest
+{
+public:
+    UiThemeScreensTests() : juce::UnitTest ("UiScreens themes", "UiScreens") {}
+
+    static bool visibleIn (juce::Component* comp, juce::Component& root)
+    {
+        for (auto* p = comp; p != nullptr; p = p->getParentComponent())
+        {
+            if (p == &root) return true;
+            if (! p->isVisible()) return false;
+        }
+        return false;
+    }
+
+    static void click (juce::Component* comp)
+    {
+        if (auto* b = dynamic_cast<juce::Button*> (comp); b != nullptr && b->onClick) b->onClick();
+    }
+
+    void runTest() override
+    {
+        beginTest ("S-03 外観: 画面の配置 and 配色 change Settings; この案の配色にもする; Studio-only rows; search aliases");
+        {
+            freshUiDataDir();
+            Theme::clearPalette();
+            AppController c (false);
+            c.startup();
+            FakeNavigator nav;
+            SettingsView v (c, nav);
+            v.setSize (Theme::defaultWidth, Theme::defaultHeight);
+            v.showSection (Navigator::SettingsSection::appearance);
+            auto* layout = find<Segmented> (v, "settings.layoutStyle");
+            auto* match = find<PillButton> (v, "settings.layoutPalette");
+            auto* combo = find<juce::ComboBox> (v, "settings.themeId");
+            auto* edit = find<juce::Button> (v, "settings.themeEdit");
+            expect (layout != nullptr && match != nullptr && combo != nullptr && edit != nullptr, "rows exist");
+            if (layout == nullptr || match == nullptr || combo == nullptr || edit == nullptr) return;
+            expect (! match->isVisible() && combo->getNumItems() == 3 && combo->getSelectedId() == 1, "A Studio, Studio / Paper / Mono");
+            expect (! edit->isEnabled(), "編集 only for a user theme");
+
+            layout->setSelected (1, true);
+            c.dispatchPendingMessages();
+            expectEquals (c.getSettings().layoutStyle, 1);
+            expect (c.getSettings().themeId.isEmpty(), "the layout alone keeps the palette");
+            expect (match->isVisible(), "B offers its palette");
+            click (match);
+            c.dispatchPendingMessages();
+            expectEquals (c.getSettings().themeId, juce::String (ThemeLibrary::paperId));
+            expect (! match->isVisible() && combo->getSelectedId() == 2, "offer gone once applied; 配色 shows Paper");
+            for (auto* id : { "settings.theme", "settings.accent", "settings.tone" })
+                expect (! findById (v, id)->isEnabled(), juce::String (id) + " only while 配色 is Studio");
+            layout->setSelected (2, true);
+            c.dispatchPendingMessages();
+            click (match);
+            c.dispatchPendingMessages();
+            expectEquals (c.getSettings().themeId, juce::String (ThemeLibrary::monoId), "C -> Mono");
+
+            combo->setSelectedId (1, juce::sendNotificationSync);
+            c.dispatchPendingMessages();
+            expect (c.getSettings().themeId.isEmpty() && findById (v, "settings.accent")->isEnabled(), "Studio again");
+            checkLayout (*this, v, "S-03 appearance with a layout offer");
+
+            ThemeData t { "Mine", true, Theme::dark() };
+            juce::String err;
+            const auto file = ThemeLibrary::saveNew (t, err);
+            c.updateSettings ([] (Settings&) {});
+            c.dispatchPendingMessages();
+            expectEquals (combo->getNumItems(), 4, "user themes are listed");
+            combo->setSelectedId (4, juce::sendNotificationSync);
+            c.dispatchPendingMessages();
+            expectEquals (c.getSettings().themeId, ThemeLibrary::userId (file));
+            expect (edit->isEnabled());
+            click (edit);
+            auto* editor = dynamic_cast<ThemeEditor*> (nav.overlay.get());
+            expect (editor != nullptr && editor->editingFile() == file, "編集 opens the editor on that theme");
+            click (findById (v, "settings.themeNew"));
+            editor = dynamic_cast<ThemeEditor*> (nav.overlay.get());
+            expect (editor != nullptr && editor->editingFile().isEmpty(), "新しく作る opens a new theme");
+
+            for (auto* q : { "スキン", "テーマ", "配色", "レイアウト", "デザイン", "案" })
+            {
+                v.setSearchText (juce::String::fromUTF8 (q));
+                expect (visibleIn (layout, v) && visibleIn (combo, v), juce::String::fromUTF8 (q) + " finds 画面の配置 and 配色");
+            }
+            v.setSearchText ({});
+            for (auto win : kWindows)
+            {
+                v.setBounds (pageArea (win, false).withPosition (0, 0));
+                checkLayout (*this, v, juce::String ("S-03 appearance ") + win.name);
+            }
+        }
+
+        beginTest ("Theme editor: starts from the current palette, picks apply live, contrast warnings, save uses the theme");
+        {
+            freshUiDataDir();
+            Theme::clearPalette();
+            Theme::setDark (true);
+            AppController c (false);
+            c.startup();
+            FakeNavigator nav;
+            ThemeEditor ed (c, nav);
+            ed.setBounds (overlayArea (kWindows[0], ed));
+            expect (samePalette (ed.working().colours, Theme::colours()), "starts from the current palette");
+            expect (ed.editingFile().isEmpty());
+            auto* summary = find<TextLabel> (ed, "themeEditor.contrastSummary");
+            expect (summary != nullptr && summary->getTone() == Tone::ok, "the Studio palette passes");
+
+            auto* selector = find<juce::ColourSelector> (ed, "themeEditor.selector");
+            expect (selector != nullptr);
+            click (findById (ed, "themeEditor.role.accent"));
+            expect (selector->getCurrentColour() == Theme::colours().accent, "the selector shows the role's colour");
+            const auto pink = *Theme::parseHex ("#FF5FA2");
+            selector->setCurrentColour (pink);
+            selector->dispatchPendingMessages();
+            expect (ed.working().colours.accent == pink, "a pick in the selector changes the edited palette");
+            ed.setRoleColour (5, ed.working().colours.bg); // text = background
+            expect (summary->getTone() == Tone::warn && summary->getText().contains (ja ("足りない")), "contrast warning: " + summary->getText());
+            expect (Theme::colours().text != ed.working().colours.text, "the app keeps its colours until saved");
+
+            auto* nameField = find<juce::TextEditor> (ed, "themeEditor.name");
+            nameField->setText (ja ("読みにくい"));
+            click (findById (ed, "themeEditor.save"));
+            const auto file = ed.editingFile();
+            expect (file.isNotEmpty() && ThemeLibrary::fileFor (file).existsAsFile(), "saved despite the warning");
+            expectEquals (c.getSettings().themeId, ThemeLibrary::userId (file), "and used");
+            expect (summary->getTone() == Tone::warn, "the warning stays after saving");
+            auto* message = find<TextLabel> (ed, "themeEditor.message");
+            expect (message != nullptr && message->getTone() == Tone::warn && message->getText().contains (ja ("保存")), message->getText());
+            expect (findById (ed, "themeEditor.item." + file) != nullptr, "listed under 自分のテーマ");
+
+            ed.setRoleColour (5, *Theme::parseHex ("#FFFFFF"));
+            click (findById (ed, "themeEditor.save"));
+            expect (ed.editingFile() == file, "保存 again overwrites the same file");
+            juce::String err;
+            expect (ThemeLibrary::resolve (ThemeLibrary::userId (file), err)->colours.text == *Theme::parseHex ("#FFFFFF"));
+
+            nameField->setText ("   ");
+            click (findById (ed, "themeEditor.save"));
+            expect (message->getTone() == Tone::danger, "an empty name is refused");
+            for (auto win : kWindows)
+            {
+                ed.setBounds (overlayArea (win, ed).withPosition (0, 0));
+                checkLayout (*this, ed, juce::String ("theme editor ") + win.name);
+            }
+        }
+
+        beginTest ("Theme editor: rename, duplicate, delete (asks first), export / import through the file chooser seam");
+        {
+            freshUiDataDir();
+            Theme::clearPalette();
+            AppController c (false);
+            c.startup();
+            FakeNavigator nav;
+            ThemeData t { "Alpha", true, Theme::mono() };
+            juce::String err;
+            const auto file = ThemeLibrary::saveNew (t, err);
+            c.updateSettings ([file] (Settings& s) { s.themeId = ThemeLibrary::userId (file); });
+            ThemeEditor ed (c, nav, file);
+            ed.setBounds (overlayArea (kWindows[0], ed));
+            expect (ed.editingFile() == file && samePalette (ed.working().colours, Theme::mono()), "opened on the saved theme");
+
+            click (findById (ed, "themeEditor.rename." + file));
+            auto* prompt = find<InlinePrompt> (ed, "themeEditor.prompt");
+            expect (prompt != nullptr && prompt->getEditor() != nullptr);
+            prompt->getEditor()->setText ("Beta");
+            prompt->ok();
+            expectEquals (ThemeLibrary::resolve (ThemeLibrary::userId (file), err)->name, juce::String ("Beta"));
+            expectEquals (find<juce::TextEditor> (ed, "themeEditor.name")->getText(), juce::String ("Beta"), "the edited theme's name follows");
+
+            click (findById (ed, "themeEditor.duplicate." + file));
+            expectEquals (int (ThemeLibrary::list().size()), 2);
+
+            const auto out = paths::dataDir().getChildFile ("theme-out.json");
+            int asked = 0;
+            themeFileChooserForTests() = [&] (bool save) { ++asked; return save ? out : out; };
+            click (findById (ed, "themeEditor.export." + file));
+            expect (out.existsAsFile() && asked == 1, "書き出し writes the chosen file");
+            click (findById (ed, "themeEditor.import"));
+            expectEquals (int (ThemeLibrary::list().size()), 3, "読み込み adds a copy");
+            const auto bad = paths::dataDir().getChildFile ("theme-bad.json");
+            bad.replaceWithText ("{ \"colours\": { \"bg\": \"blue\" } }");
+            themeFileChooserForTests() = [&] (bool) { return bad; };
+            click (findById (ed, "themeEditor.import"));
+            auto* message = find<TextLabel> (ed, "themeEditor.message");
+            expect (message->getTone() == Tone::danger && message->getText().contains (ja ("読み込めませんでした")), message->getText());
+            themeFileChooserForTests() = [] (bool) { return juce::File(); };
+            click (findById (ed, "themeEditor.import"));
+            expectEquals (int (ThemeLibrary::list().size()), 3, "cancelled chooser does nothing");
+            themeFileChooserForTests() = nullptr;
+
+            click (findById (ed, "themeEditor.delete." + file));
+            prompt = find<InlinePrompt> (ed, "themeEditor.prompt");
+            expect (prompt != nullptr && prompt->isVisible(), "削除 asks first");
+            expect (ThemeLibrary::fileFor (file).existsAsFile(), "nothing deleted before the answer");
+            prompt->ok();
+            expect (! ThemeLibrary::fileFor (file).exists(), "deleted");
+            expect (c.getSettings().themeId.isEmpty(), "the theme in use was deleted: back to Studio");
+            expect (ed.editingFile().isEmpty(), "the colours stay as a new theme");
+            expectEquals (int (ThemeLibrary::list().size()), 2);
+            Theme::clearPalette();
+        }
+    }
+
+    static bool samePalette (const Palette& a, const Palette& b)
+    {
+        for (int r = 0; r < Theme::numRoles; ++r)
+            if (Theme::role (a, r) != Theme::role (b, r)) return false;
+        return true;
+    }
+};
+
+static UiThemeScreensTests uiThemeScreensTests;
 
 // =============================================================================================== snapshots
 class UiScreensSnapshots : public juce::UnitTest
@@ -716,6 +1264,41 @@ public:
                     {
                         auto panel = createHelpPanel (topics[t], c, nav);
                         overlay (*panel, win, dir.getChildFile ("help-" + juce::String (helpNames[t]) + "-" + sz + "-" + theme + ".png"));
+                    }
+                    {
+                        // wave5/themes: the theme editor, then scrolled to its contrast table with a too faint sub text
+                        ThemeEditor ed (c, nav);
+                        overlay (ed, win, dir.getChildFile ("theme-editor-" + sz + "-" + theme + ".png"));
+                        ed.setRoleColour (6, ed.working().colours.trackOff);
+                        Host host;
+                        host.dim = true;
+                        host.setSize (win.w, win.h);
+                        host.addAndMakeVisible (ed);
+                        ed.setBounds (overlayArea (win, ed));
+                        auto* summary = findById (ed, "themeEditor.contrastSummary");
+                        if (auto* vp = summary != nullptr ? summary->findParentComponentOfClass<juce::Viewport>() : nullptr)
+                            vp->setViewPosition (0, summary->getY() - Theme::space5 - Theme::space3);
+                        save (host, dir.getChildFile ("theme-editor-contrast-" + sz + "-" + theme + ".png"));
+                        host.removeChildComponent (&ed);
+                    }
+                }
+                if (dark)
+                {
+                    // wave5/themes: S-01 (layout A) in the built-in Paper and Mono palettes
+                    c.updateSettings ([] (Settings& s) { s.setupDone = true; s.tourStep = 7; });
+                    for (auto* id : { ThemeLibrary::paperId, ThemeLibrary::monoId })
+                    {
+                        c.updateSettings ([id] (Settings& s) { s.themeId = id; });
+                        {
+                            MainComponent mc (c);
+                            mc.setSize (Theme::defaultWidth, Theme::defaultHeight);
+                            if (auto* v = dynamic_cast<mainui::VoicePage*> (findById (mc, "page.voice"))) v->tick();
+                            save (mc, dir.getChildFile ("S01-wide-" + juce::String (id).fromFirstOccurrenceOf (":", false, false) + ".png"));
+                        }
+                        c.updateSettings ([] (Settings& s) { s.themeId = {}; });
+                        Theme::clearPalette();
+                        Theme::setDark (dark);
+                        lnf.refreshColours();
                     }
                 }
             }

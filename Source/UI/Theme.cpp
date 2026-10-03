@@ -48,11 +48,9 @@ juce::Colour inkFor (juce::Colour fill)
     return contrastRatio (darkInk, fill) >= contrastRatio (lightInk, fill) ? darkInk : lightInk;
 }
 
-Palette derive (const Palette& mock, bool dark, int tone)
+/** Every grey of p from one background colour (and p.text), in the mock's proportions. */
+Palette deriveFrom (Palette p, juce::Colour base, bool dark)
 {
-    Palette p = mock;
-    if (tone == 0) return p;
-    const auto base = c ((dark ? kDarkTones : kLightTones)[tone].base);
     const auto towardsText = [&] (float k) { return base.interpolatedWith (p.text, k); };
     p.bg = base;
     if (dark)
@@ -72,8 +70,31 @@ Palette derive (const Palette& mock, bool dark, int tone)
     return p;
 }
 
+Palette derive (const Palette& mock, bool dark, int tone)
+{
+    if (tone == 0) return mock;
+    return deriveFrom (mock, c ((dark ? kDarkTones : kLightTones)[tone].base), dark);
+}
+
+// a built-in or user theme replacing the Studio palette (S-03 外観 「配色」)
+struct Custom { Palette palette; bool dark; };
+std::optional<Custom> custom;
+juce::String appliedId; // Settings::themeId of what is applied ("" = Studio)
+
 Palette current = Theme::dark();
-void rebuild() { current = Theme::make (darkMode, accentChoice, toneChoice); }
+void rebuild() { current = custom ? custom->palette : Theme::make (darkMode, accentChoice, toneChoice); }
+
+constexpr juce::Colour Palette::*kRoles[Theme::numRoles] = {
+    &Palette::bg,     &Palette::surface,  &Palette::raised, &Palette::border, &Palette::divider,
+    &Palette::text,   &Palette::textSub,  &Palette::accent, &Palette::onAccent, &Palette::ok,
+    &Palette::warn,   &Palette::danger,   &Palette::trackOff, &Palette::overlay, &Palette::onDanger,
+};
+constexpr const char* kRoleKeys[Theme::numRoles] = { "bg",   "surface", "raised", "border", "divider", "text",    "textSub", "accent",
+                                                     "onAccent", "ok", "warn",   "danger", "trackOff", "overlay", "onDanger" };
+constexpr const char* kRoleNames[Theme::numRoles] = { "背景", "カードの面", "浮いた面", "枠線・つまみの溝", "区切り線", "文字", "補足の文字",
+                                                      "アクセント", "アクセントの上の文字", "正常（OK）", "注意", "危険", "OFF の溝",
+                                                      "パネルの後ろの影", "危険の上の文字" };
+enum RoleIndex { rBg, rSurface, rRaised, rBorder, rDivider, rText, rTextSub, rAccent, rOnAccent, rOk, rWarn, rDanger, rTrackOff, rOverlay, rOnDanger };
 } // namespace
 
 const Palette& Theme::dark()
@@ -114,8 +135,92 @@ juce::String Theme::toneName (int tone, bool dark)
     return juce::String::fromUTF8 ((dark ? kDarkTones : kLightTones)[juce::jlimit (0, numTones - 1, tone)].name);
 }
 
+// 案 B Paper (docs/mockups/B-S01.dc.html): the mock's paper, card and white surfaces, ink, navy accent, 1 px
+// hairline borders (#7C7566) and dividers (#D9D3C5), meter tracks #E2DDCF; danger is the light theme's.
+const Palette& Theme::paper()
+{
+    static const Palette p { c (0xF3EFE6), c (0xFAF8F2), c (0xFFFFFF), c (0x7C7566), c (0xD9D3C5), c (0x1B1A17), c (0x55514A),
+                             c (0x2A4DA0), c (0xFFFFFF), c (0x1B7A3B), c (0x8F5B00), c (0xB3261E), c (0xE2DDCF),
+                             juce::Colour (0x80000000), c (0xFFFFFF) };
+    return p;
+}
+
+// 案 C Mono (docs/mockups/C-S01.dc.html): near black, white text, the off-white #F4F4F6 as the accent / active
+// fill (dark ink on it), grey lines; status colours stay coloured (green, amber, the dark theme's red).
+const Palette& Theme::mono()
+{
+    static const Palette p { c (0x0A0A0B), c (0x121214), c (0x1A1A1D), c (0x6A6A76), c (0x2A2A2F), c (0xFFFFFF), c (0xB5B5C0),
+                             c (0xF4F4F6), c (0x0A0A0B), c (0x5BE585), c (0xFFB020), c (0xFF6B6B), c (0x25252A),
+                             juce::Colour (0xb3000000), c (0x0A0A0B) };
+    return p;
+}
+
+void Theme::setPalette (const juce::String& id, const Palette& p, bool dark)
+{
+    custom = Custom { p, dark };
+    appliedId = id;
+    rebuild();
+}
+
+void Theme::clearPalette()
+{
+    custom.reset();
+    appliedId = {};
+    rebuild();
+}
+
+juce::String Theme::themeId() { return appliedId; }
+void Theme::invalidate() { appliedId = "\n"; } // no Settings::themeId has a line break
+
+const char* Theme::roleKey (int r) { return kRoleKeys[juce::jlimit (0, numRoles - 1, r)]; }
+juce::String Theme::roleName (int r) { return juce::String::fromUTF8 (kRoleNames[juce::jlimit (0, numRoles - 1, r)]); }
+juce::Colour& Theme::role (Palette& p, int r) { return p.*kRoles[juce::jlimit (0, numRoles - 1, r)]; }
+juce::Colour Theme::role (const Palette& p, int r) { return p.*kRoles[juce::jlimit (0, numRoles - 1, r)]; }
+
+Palette Theme::complete (const std::array<std::optional<juce::Colour>, numRoles>& given, bool dark)
+{
+    const auto& mock = dark ? Theme::dark() : Theme::light();
+    Palette p = mock;
+    if (given[rText]) p.text = *given[rText];
+    if (given[rBg] || given[rText]) p = deriveFrom (p, given[rBg].value_or (mock.bg), dark);
+    for (int r = 0; r < numRoles; ++r)
+        if (given[size_t (r)]) role (p, r) = *given[size_t (r)];
+    if (! given[rOnAccent]) p.onAccent = inkFor (p.accent);
+    if (! given[rOnDanger]) p.onDanger = inkFor (p.danger);
+    return p;
+}
+
+std::optional<juce::Colour> Theme::parseHex (const juce::String& text)
+{
+    auto t = text.trim();
+    if (t.startsWithChar ('#')) t = t.substring (1);
+    if ((t.length() != 6 && t.length() != 8) || ! t.containsOnly ("0123456789abcdefABCDEF")) return std::nullopt;
+    const auto v = juce::uint32 (t.getHexValue64());
+    return t.length() == 6 ? c (v) : juce::Colour (v);
+}
+
+juce::String Theme::toHex (juce::Colour col)
+{
+    return "#" + (col.isOpaque() ? juce::String::toHexString (int (col.getARGB() & 0xffffffu)).paddedLeft ('0', 6)
+                                 : juce::String::toHexString (int (col.getARGB())).paddedLeft ('0', 8)).toUpperCase();
+}
+
+std::vector<Theme::ContrastCheck> Theme::contrastChecks (const Palette& p)
+{
+    std::vector<ContrastCheck> out;
+    auto add = [&] (int fg, int bg, double min) { out.push_back ({ fg, bg, min, contrastRatio (role (p, fg), role (p, bg)) }); };
+    for (int bg : { rBg, rSurface, rRaised })
+    {
+        for (int fg : { rText, rTextSub, rAccent, rOk, rWarn, rDanger }) add (fg, bg, 4.5);
+        add (rBorder, bg, 3.0);
+    }
+    add (rOnAccent, rAccent, 4.5);
+    add (rOnDanger, rDanger, 4.5);
+    return out;
+}
+
 const Palette& Theme::colours() { return current; }
-bool Theme::isDark() { return darkMode; }
+bool Theme::isDark() { return custom ? custom->dark : darkMode; }
 void Theme::setDark (bool d) { darkMode = d; rebuild(); }
 void Theme::setVariant (int accent, int tone)
 {
@@ -140,8 +245,15 @@ juce::Font Theme::mono (float size, bool bold)
     return juce::Font (juce::FontOptions (face, size, bold ? juce::Font::bold : juce::Font::plain));
 }
 
+Theme::Prefs& Theme::prefs()
+{
+    static Prefs p;
+    return p;
+}
+
 bool Theme::animationsEnabled()
 {
+    if (prefs().animations != 0) return prefs().animations == 1;
 #if JUCE_WINDOWS
     BOOL on = TRUE;
     if (SystemParametersInfoW (SPI_GETCLIENTAREAANIMATION, 0, &on, 0)) return on != FALSE;

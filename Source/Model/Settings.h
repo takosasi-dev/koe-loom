@@ -69,6 +69,62 @@ struct Settings
     // ---- soundboard global (F-06-7) ----
     float duckingDb = kDuckingDb.def;
 
+    // ======== detailed settings (S-03 「詳細な設定」, INTERFACES.md §7). Every default keeps the old behaviour. ========
+    // ---- audio processing (owner: wave4/audio, applied in AppController::applyAudioSettings) ----
+    int converterQuality = 1;              // 0 低遅延 / 1 標準 (today's phase vocoder) / 2 高品質
+    float pitchMinHz = kPitchMinHz.def;    // pitch detection range; clamp keeps min < max
+    float pitchMaxHz = kPitchMaxHz.def;
+    bool highPassOn = false;               // input low cut before noise suppression
+    float highPassHz = kHighPassHz.def;
+    bool agcOn = false;                    // automatic input level before the gate
+    float agcTargetDb = kAgcTargetDb.def;
+    float agcMaxGainDb = kAgcMaxGainDb.def;
+    float limiterCeilingDb = kLimiterCeilingSetDb.def;
+    float limiterReleaseMs = kLimiterReleaseMs.def;
+    float presetCrossfadeMs = kPresetCrossfadeMs.def;
+    int soundboardMaxVoices = kSoundboardMaxVoices; // 1..kSoundboardMaxVoices
+    float soundFadeMs = kSoundFadeMs.def;
+    float duckAttackMs = kDuckAttackMs.def;
+    float duckReleaseMs = kDuckReleaseMs.def;
+    bool monitorIncludeSoundboard = true;  // global switch on top of each slot's toMonitor
+
+    // ---- devices, monitor, hotkeys, app (owner: wave4/platform, applied in AppController::applyPlatformSettings) ----
+    bool wasapiExclusive = false;          // exclusive mode for input and output (E-04 if refused)
+    int inputChannel = 0;                  // 0 = as before: average of the open channels (the first two; a mono device's only one), 1 = left, 2 = right, 3 = average of both
+    int monitorLatency = 1;                // 0 低遅延 / 1 標準 (today's target fill) / 2 安定
+    int reconnectSeconds = 1;              // device retry interval, 1..10 (F-01-4)
+    int pushToTalk = 0;                    // 0 off / 1 押している間だけ話す / 2 押している間だけミュート (hotkey action "pushToTalk")
+    float pttReleaseMs = kPttReleaseMs.def;
+    bool hotkeyToasts = false;             // show a toast when a hotkey changes something (false: hotkeys were silent before)
+    bool favoriteWrap = true;              // favourite next / prev wraps around
+    int startupVoice = 0;                  // 0 前回の状態 / 1 ON / 2 OFF
+    bool startupLastPreset = true;         // false = start with natural-asis
+    int closeAction = 0;                   // 0 = what the app did before (tray), 1 = quit
+    bool trayNotifications = false;        // tray balloon for a new danger notice while not in front (false: none before)
+    int logLevel = 1;                      // 0 エラーだけ / 1 標準 / 2 詳細
+    int logKeepDays = 7;                   // 1..30
+
+    // ---- screen (owner: wave4/ui, read by the UI on change messages) ----
+    int uiScalePercent = 100;              // one of kUiScalePercents
+    bool alwaysOnTop = false;
+    int animations = 0;                    // 0 Windows に従う / 1 オン / 2 オフ
+    int meterFps = 30;                     // 30 or 60
+    float meterPeakHoldMs = kMeterPeakHoldMs.def;
+    float tooltipDelayMs = kTooltipDelayMs.def;
+    int knobSensitivity = 1;               // 0 ゆっくり / 1 標準 / 2 速い
+    bool knobWheel = true;                 // mouse wheel turns knobs
+    bool settingsShowDetails = false;      // S-03: 「詳細な設定」 open in every section
+
+    // ---- updates from GitHub Releases (owner: wave4/update, INTERFACES.md §7.4). OFF = no network at all (F-11-4, AC-27) ----
+    bool autoUpdate = false;               // check at startup, download, replace the exe when the app quits
+    bool updateIncludePrerelease = true;   // only pre-releases exist while v0.x
+    juce::String updateSkippedVersion;     // "0.2.0" the user chose to skip; empty = none
+
+    // ---- looks (INTERFACES.md §8, owner request 2026-10-03: the mock's 案 B / 案 C as alternatives, own themes) ----
+    int layoutStyle = 0;                   // S-01 page: 0 案 A Studio (approved) / 1 案 B Paper / 2 案 C Mono
+    juce::String themeId;                  // "" = darkTheme + accentColour + backgroundTone (as before);
+                                           // "builtin:paper", "builtin:mono", or "user:<file name>" in paths::themesDir()
+
     bool operator== (const Settings&) const = default;
 };
 

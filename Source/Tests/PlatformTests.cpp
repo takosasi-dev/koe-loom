@@ -1,14 +1,18 @@
-// Platform tests (platform): hotkey names, the autostart command, the monitor's adaptive resampler (R-2)
-// and the soundboard. Category "Platform".
+// Platform tests (platform): hotkey names, the autostart command, the monitor's adaptive resampler (R-2),
+// the soundboard and the wave-4 detailed settings (input channel, monitor latency, log level / retention,
+// tray notifications). Category "Platform".
 // Never opens an audio device, registers a hotkey, writes the registry or makes a sound.
 
+#include "App/Tray.h"
 #include "Core/Constants.h"
 #include "Core/Paths.h"
 #include "Dsp/Building.h"
+#include "Engine/AudioEngine.h"
 #include "Engine/MonitorOutput.h"
 #include "Engine/Soundboard.h"
 #include "Platform/AutoStart.h"
 #include "Platform/Hotkeys.h"
+#include "Platform/Log.h"
 #include "Tests/Mp3Fixture.h"
 #include "Tests/TestUtil.h"
 
@@ -67,17 +71,22 @@ struct DriftStats
     float minPeak = 1.0e9f, maxPeak = 0.0f;          // per-block peak after 1 s
     double delayMinMs = 1.0e9, delayMaxMs = -1.0e9;  // delay through the FIFO after 1 s, relative to its value at 1 s
     double steadyMinMs = 1.0e9, steadyMaxMs = -1.0e9; // ... over the last 5 minutes
+    double meanFill = 0.0;                           // FIFO fill after each read, after 1 s (main-rate samples)
 };
 
 /** Main device (48 kHz, 480-sample pushes) and monitor device (monRate nominal, its clock off by ppm) run
-    offline on their own clocks, both callbacks late by up to jitterMs. The main side pushes a 500 Hz sine. */
-DriftStats runDrift (double monRate, double ppm, int monBlock, double seconds, double jitterMs)
+    offline on their own clocks, both callbacks late by up to jitterMs. The main side pushes a 500 Hz sine.
+    latencyMode = Settings::monitorLatency. */
+DriftStats runDrift (double monRate, double ppm, int monBlock, double seconds, double jitterMs, int latencyMode = 1)
 {
     DriftStats st;
     MonitorOutput m;
     m.prepareForTest (kMainRate, monRate, monBlock);
+    m.setLatencyMode (latencyMode);
     m.setVolumeDb (0.0f);
     m.setEnabled (true);
+    double fillSum = 0.0;
+    long long fillCount = 0;
 
     const double monActual = monRate * (1.0 + ppm * 1.0e-6);  // the monitor device's real clock
     const double mainPeriod = kMainBlock / kMainRate, monPeriod = monBlock / monActual;
@@ -125,6 +134,8 @@ DriftStats runDrift (double monRate, double ppm, int monBlock, double seconds, d
         if (! settled) continue;
         st.minPeak = std::min (st.minPeak, peak);
         st.maxPeak = std::max (st.maxPeak, peak);
+        fillSum += m.getFillForTests();
+        ++fillCount;
 
         // the tone's phase against the device clock moves exactly as the delay through the FIFO does
         const double ph = std::arg (z);
@@ -153,6 +164,7 @@ DriftStats runDrift (double monRate, double ppm, int monBlock, double seconds, d
     st.underruns = m.getUnderruns();
     st.overruns = m.getOverruns();
     st.ppmLastMinute = ppmCount > 0 ? ppmSum / double (ppmCount) : 0.0;
+    st.meanFill = fillCount > 0 ? fillSum / double (fillCount) : 0.0;
     return st;
 }
 
@@ -318,15 +330,26 @@ public:
         expectEquals (Hotkeys::describe (MOD_CONTROL, 0), juce::String());
         expect (Hotkeys::describe (0, 0x07).startsWith ("0x"));
 
-        beginTest ("Hotkeys::allActions: 39 ids in the header's order");
+        beginTest ("Hotkeys::allActions: the spec's 39 ids in the header's order, soundStop.1..12 after sound.12 (owner 2026-10-03), then pushToTalk (wave 4)");
         const auto actions = Hotkeys::allActions();
         juce::StringArray expected { "voiceToggle", "muteToggle", "favoriteNext", "favoritePrev" };
         for (int i = 1; i <= 9; ++i) expected.add ("favorite." + juce::String (i));
         for (int i = 1; i <= 10; ++i) expected.add ("slot." + juce::String (i));
         for (int i = 1; i <= 12; ++i) expected.add ("sound." + juce::String (i));
         expected.addArray (juce::StringArray { "soundStopAll", "freezeToggle", "looperRecPlay", "looperClear" });
-        expectEquals (actions.size(), 39);
+        expectEquals (expected.size(), 39);
+        const int afterSounds = expected.indexOf ("sound.12") + 1;
+        for (int i = 12; i >= 1; --i) expected.insert (afterSounds, "soundStop." + juce::String (i));
+        expected.add ("pushToTalk");
         expect (actions == expected, actions.joinIntoString (","));
+        expectEquals (actions.size(), 52);
+        expectEquals (Hotkeys::actionLabel ("pushToTalk"), u8 ("プッシュトゥトーク（押している間）"));
+        expectEquals (Hotkeys::actionLabel ("soundStop.7"), u8 ("効果音 7 を止める"));
+
+        beginTest ("Hotkeys::isKeyDown: tests answer through keyStateForTests");
+        Hotkeys::keyStateForTests = [] (int vk) { return vk == 'K'; };
+        expect (Hotkeys::isKeyDown ('K') && ! Hotkeys::isKeyDown ('J'));
+        Hotkeys::keyStateForTests = nullptr;
 
         beginTest ("Hotkeys::actionLabel: Japanese, distinct, never empty");
         juce::StringArray labels;
@@ -346,6 +369,126 @@ public:
                       juce::String ("\"C:\\Program Files\\KoeLoom\\KoeLoom.exe\" --autostart"));
         const juce::File ja (u8 ("D:\\ツール\\声 ルーム (試用)\\KoeLoom.exe"));
         expectEquals (autostart::commandFor (ja), u8 ("\"D:\\ツール\\声 ルーム (試用)\\KoeLoom.exe\" --autostart"));
+    }
+};
+
+// ============================================================================ wave 4: detailed platform settings
+class PlatformDetailTests final : public juce::UnitTest
+{
+public:
+    PlatformDetailTests() : juce::UnitTest ("Detailed platform settings", "Platform") {}
+
+    void runTest() override
+    {
+        beginTest ("inputChannel: 0 = average of the open channels (as before), 1 left, 2 right, 3 average; mono devices");
+        {
+            const float l[] = { 0.2f, 0.4f }, r[] = { 0.6f, -0.4f };
+            const float* stereo[] = { l, r };
+            const float* mono[] = { l };
+            const float* rightMissing[] = { l, nullptr };
+            float out[2] {};
+            auto check = [&] (const float* const* in, int numIn, int mode, float a, float b, int used)
+            {
+                expectEquals (AudioEngine::mixInput (in, numIn, 0, 2, mode, out), used);
+                expectWithinAbsoluteError (out[0], a, 1.0e-6f);
+                expectWithinAbsoluteError (out[1], b, 1.0e-6f);
+            };
+            check (stereo, 2, 0, 0.4f, 0.0f, 2);
+            check (stereo, 2, 1, 0.2f, 0.4f, 1);
+            check (stereo, 2, 2, 0.6f, -0.4f, 1);
+            check (stereo, 2, 3, 0.4f, 0.0f, 2);
+            for (int mode = 0; mode <= 3; ++mode) check (mono, 1, mode, 0.2f, 0.4f, 1); // a mono device: its channel
+            check (rightMissing, 2, 2, 0.2f, 0.4f, 1);
+            check (stereo, 0, 1, 0.0f, 0.0f, 0);
+            expectEquals (AudioEngine::mixInput (stereo, 2, 1, 1, 2, out), 1); // from pos
+            expectEquals (out[0], -0.4f);
+        }
+
+        beginTest ("monitorLatency: low / standard / stable keep R-2 clean (2 min, 44.1 kHz +300 ppm, 3 ms jitter), fill grows");
+        {
+            double fills[3] {};
+            for (int mode = 0; mode < 3; ++mode)
+            {
+                const auto st = runDrift (44100.0, 300.0, 441, 120.0, 3.0, mode);
+                fills[mode] = st.meanFill;
+                logMessage ("    mode " + juce::String (mode) + ": mean fill " + juce::String (st.meanFill, 0) + " samples ("
+                            + juce::String (st.meanFill / 48.0, 1) + " ms), underruns " + juce::String (st.underruns)
+                            + ", max residual " + juce::String (st.maxResidual, 6));
+                expectEquals (st.underruns, 0);
+                expectEquals (st.overruns, 0);
+                expectLessThan (st.maxResidual, 0.005);
+            }
+            expectLessThan (fills[0], fills[1] * 0.8);
+            expectGreaterThan (fills[2], fills[1] * 1.6);
+        }
+
+        beginTest ("logLevel: errors always, plain lines from 'standard', detail lines only at 'detail'");
+        {
+            struct Capture final : juce::Logger
+            {
+                juce::StringArray lines;
+                void logMessage (const juce::String& m) override { lines.add (m); }
+            } capture;
+            logging::FilterLogger filter (&capture);
+            auto* previous = juce::Logger::getCurrentLogger();
+            juce::Logger::setCurrentLogger (&filter);
+            auto writeAll = []
+            {
+                logging::write (logging::error, "E");
+                juce::Logger::writeToLog ("S");
+                logging::write (logging::detail, "D");
+            };
+            const int before = logging::getLevel();
+            logging::setLevel (0);
+            writeAll();
+            logging::setLevel (1);
+            writeAll();
+            logging::setLevel (2);
+            writeAll();
+            logging::setLevel (before);
+            juce::Logger::setCurrentLogger (previous);
+            expect (capture.lines == juce::StringArray ({ "E", "E", "S", "E", "S", "D" }), capture.lines.joinIntoString (","));
+        }
+
+        beginTest ("logKeepDays: files older than the retention are deleted, newer ones kept");
+        {
+            const auto dir = testDir().getChildFile ("logs");
+            dir.deleteRecursively();
+            dir.createDirectory();
+            const auto now = juce::Time::getCurrentTime();
+            auto make = [&] (const char* name, int daysOld)
+            {
+                const auto f = dir.getChildFile (name);
+                f.replaceWithText ("x");
+                f.setLastModificationTime (now - juce::RelativeTime::days (daysOld) - juce::RelativeTime::minutes (1));
+            };
+            make ("koeloom.log", 0);
+            make ("old.log", 8);
+            make ("week.log", 6);
+            expectEquals (logging::deleteOldFiles (dir, 7, now), 1);
+            expect (dir.getChildFile ("koeloom.log").exists() && dir.getChildFile ("week.log").exists() && ! dir.getChildFile ("old.log").exists());
+            expectEquals (logging::deleteOldFiles (dir, 1, now), 1);
+            expect (dir.getChildFile ("koeloom.log").exists() && ! dir.getChildFile ("week.log").exists());
+            dir.deleteRecursively();
+        }
+
+        beginTest ("trayNotifications: only new danger notices are announced, again after they went away");
+        {
+            const Notice lost { "device.lost", NoticeLevel::danger, "a" }, gain { "output.gain", NoticeLevel::warning, "b" },
+                         loop { "loop", NoticeLevel::danger, "c" };
+            juce::StringArray seen;
+            auto keys = [] (const std::vector<Notice>& v)
+            {
+                juce::StringArray k;
+                for (auto& n : v) k.add (n.key);
+                return k;
+            };
+            expect (keys (newDangerNotices ({ lost, gain }, seen)) == juce::StringArray ({ "device.lost" }));
+            expect (newDangerNotices ({ lost, gain }, seen).empty());
+            expect (keys (newDangerNotices ({ lost, loop }, seen)) == juce::StringArray ({ "loop" }));
+            expect (newDangerNotices ({ gain }, seen).empty());
+            expect (keys (newDangerNotices ({ lost }, seen)) == juce::StringArray ({ "device.lost" }));
+        }
     }
 };
 
@@ -768,6 +911,37 @@ private:
         expect (! sb.getSlotState (10).playing);
         setDef (10, [] (auto& d) { d.loop = false; });
 
+        beginTest ("stopSlot (owner 2026-10-03): every voice of that slot fades with soundFadeMs, loop too; other slots keep playing");
+        setDef (10, [] (auto& d) { d.loop = true; d.retrigger = 2; });
+        setDef (3, [] (auto& d) { d.loop = true; });
+        const auto allocsBefore = r.allocations;
+        r.clear();
+        sb.trigger (10);
+        sb.trigger (10); // overlap: two voices of slot 10
+        sb.trigger (3);
+        r.run (4800);
+        expectWithinAbsoluteError (r.out.back(), 2.0f * level (10) + level (3), 1.0e-5f);
+        sb.setFadeMs (20.0f); // 960 samples
+        const size_t slotStopAt = r.out.size();
+        sb.stopSlot (10);
+        sb.stopSlot (-1);  // out of range: ignored
+        sb.stopSlot (kSoundboardSlots);
+        r.run (48000 * 2); // past the loop point: a stopped loop does not come back
+        expectWithinAbsoluteError (r.out[slotStopAt + 480], level (10) + level (3), 1.0e-4f); // halfway through the fade
+        expectGreaterThan (r.out[slotStopAt + 900], level (3));
+        expectWithinAbsoluteError (peakIn (r.out, slotStopAt + 961, r.out.size()), level (3), 1.0e-6f);
+        expectWithinAbsoluteError (r.out.back(), level (3), 1.0e-6f);
+        expect (! sb.getSlotState (10).playing);
+        expect (sb.getSlotState (3).playing);
+        sb.stopSlot (3);
+        r.run (1440);
+        expectEquals (r.out.back(), 0.0f);
+        expect (! sb.getSlotState (3).playing);
+        expectEquals (r.allocations, allocsBefore, "no allocation on the audio thread");
+        sb.setFadeMs (kSoundFadeMs.def);
+        setDef (10, [] (auto& d) { d.loop = false; d.retrigger = 0; });
+        setDef (3, [] (auto& d) { d.loop = false; });
+
         beginTest ("F-06-4: volume -24 / +6 dB within 1 dB");
         const auto sineFile = dir.getChildFile ("sine.wav");
         expect (writeWav (sineFile, sine (1000.0, 1.0, 0.25f)));
@@ -950,6 +1124,7 @@ private:
 };
 
 PlatformNameTests platformNameTests;
+PlatformDetailTests platformDetailTests;
 PlatformMonitorTests platformMonitorTests;
 PlatformSoundboardTests platformSoundboardTests;
 } // namespace

@@ -12,6 +12,11 @@
 
 namespace koe::ui
 {
+/** S-03 外観 「拡大率」: MainComponent applies it as juce::Desktop's global scale factor. Window sizes and limits
+    are logical pixels, so the smallest window (F-14-11) grows with it: minimumWindowSize is that size in screen pixels. */
+float uiScaleFactor (const Settings& s);
+juce::Point<int> minimumWindowSize (const Settings& s);
+
 class MainComponent : public juce::Component, public Navigator
 {
 public:
@@ -20,6 +25,8 @@ public:
 
     void paint (juce::Graphics& g) override;
     void resized() override;
+    /** Ctrl+F / Esc go to S-03's search while the settings page is shown. */
+    bool keyPressed (const juce::KeyPress& key) override;
 
     // Navigator
     void showPage (Page page) override;

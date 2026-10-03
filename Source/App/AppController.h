@@ -16,6 +16,7 @@
 #include "Model/PresetLibrary.h"
 #include "Model/Settings.h"
 #include "Platform/Hotkeys.h"
+#include "Platform/Updater.h"
 
 #include <juce_events/juce_events.h>
 
@@ -167,9 +168,38 @@ public:
     /** True if the monitor device looks like speakers (UI shows the howling warning). */
     bool isMonitorDeviceSpeaker() const;
 
-    /** Generic setter for the app options (theme, renderer, start minimized, confirm on exit, multicore, tour...). */
+    /** Generic setter for the app options (theme, renderer, start minimized, confirm on exit, multicore, tour...)
+        and every detailed setting (INTERFACES.md §7): clamps, saves, applies, sends a change message. */
     void updateSettings (const std::function<void (Settings&)>& change);
     bool setAutoStart (bool on, juce::String& error);     // F-09-3
+    // ---- settings file (S-03 詳細): owner wave4/platform ----
+    /** Writes settings.json's content (hotkeys and devices included) to a file of the user's choice. */
+    bool exportSettings (const juce::File& file, juce::String& error) const;
+    /** Loads, clamps and applies a settings file; refuses invalid JSON (error in Japanese). Devices are reopened. */
+    bool importSettings (const juce::File& file, juce::String& error);
+    /** Every setting back to its default except devices, favourites, hotkeys, setupDone and tourStep. */
+    void resetSettings();
+
+    // ================================================================ updates (INTERFACES.md §7.4, owner wave4/update)
+    struct UpdateState
+    {
+        enum class Status { idle, checking, upToDate, downloading, ready, failed };
+        Status status = Status::idle;
+        juce::String version;      // newest version found, e.g. "0.2.0"
+        juce::String releaseUrl;   // the release page (notes)
+        float progress = 0.0f;     // 0..1 while downloading
+        juce::String error;        // Japanese, when failed
+    };
+    /** Looks at GitHub Releases on a background thread. Automatic checks run only when settings.autoUpdate;
+        userInitiated (S-03 「今すぐ確認」) checks even when it is off. Never blocks the message thread. */
+    void checkForUpdates (bool userInitiated);
+    UpdateState getUpdateState() const;
+    /** Ready update: replace the exe and restart now (S-03 / the "update.ready" notice). */
+    void applyUpdateNow();
+    /** Skip the found version (no notice until a newer one). */
+    void skipUpdateVersion();
+    /** Tests: use this updater (fake network, exe in a temp folder); the app makes the real one on first use. */
+    void setUpdaterForTests (std::unique_ptr<Updater> u);
 
     // ================================================================ hotkeys (F-07)
     /** Refuses a key already used by another action (F-07-4). */
@@ -208,6 +238,9 @@ public:
 private:
     void timerCallback() override;
     void applyEnvironment();
+    // Detailed settings (INTERFACES.md §7). before == nullptr: apply everything (startup, device reopen).
+    void applyAudioSettings (const Settings* before);     // AppController_Audio.cpp, owner wave4/audio
+    void applyPlatformSettings (const Settings* before);  // AppController_Platform.cpp, owner wave4/platform
     void applyPresetToEngine (bool rebuildChain);
     void rebuildChain();
     void openDevicesIfReady();
@@ -221,6 +254,18 @@ private:
     void refreshOutputNotice();
     void monitorDeviceGone (const juce::String& openError); // F-01-4 / E-04 for the monitor device
     void reopenMonitor();
+    // ---- wave4/platform helpers (AppController_Platform.cpp) ----
+    void applyMicMute();                                  // user mute OR push-to-talk mute -> processor
+    void tickPushToTalk();                                // timer: key up -> pttReleaseMs tail -> restore
+    void hotkeyToast (const juce::String& text);          // a toast only when hotkeyToasts is on
+    void replaceSettings (const Settings& next, bool reopenDevices); // import / reset
+    int reconnectTicks() const { return settings.reconnectSeconds * 30; } // timer ticks between device retries
+    // updates (AppController_Update.cpp, owner wave4/update)
+    void pollUpdater();             // every timer tick: the automatic check, notices
+    void finishUpdateOnQuit();      // shutdown(): swap in a ready update (and restart after applyUpdateNow)
+    std::unique_ptr<Updater> updater;
+    Updater::Status shownUpdateStatus = Updater::Status::idle;
+    bool updateAutoChecked = false, restartAfterUpdate = false;
 
     const bool allowDevices;
     Settings settings;
@@ -250,5 +295,11 @@ private:
     int monitorRetryCountdown = 0;
     int ticks = 0;
     int xrunBase = 0, xrunWindowStart = 0;
+    // ---- wave4/platform state ----
+    bool pttHeld = false;           // the push-to-talk key is down
+    int pttKey = 0;                 // its virtual key (0 = no binding: treated as released at the next tick)
+    float pttTailMs = 0.0f;         // > 0: released, still active for this long
+    std::unique_ptr<juce::Logger> logFilter; // logging::FilterLogger in front of the app's logger (logLevel)
+    juce::Logger* logTarget = nullptr;
 };
 } // namespace koe

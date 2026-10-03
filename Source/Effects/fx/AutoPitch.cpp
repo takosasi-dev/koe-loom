@@ -60,6 +60,7 @@ public:
     {
         juce::ScopedNoDenormals noDenormals;
         std::copy (x, x + n, in.begin());
+        detector.setRange (dsp::gVoicePitchMinHz.load (std::memory_order_relaxed), dsp::gVoicePitchMaxHz.load (std::memory_order_relaxed)); // S-03 詳細
         for (int pos = 0; pos < n; pos += hop)
         {
             const int len = std::min (hop, n - pos);

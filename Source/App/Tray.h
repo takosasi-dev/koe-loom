@@ -14,10 +14,15 @@ public:
     explicit TrayIcon (AppController& controller);
     void mouseDown (const juce::MouseEvent& e) override;
     void mouseDoubleClick (const juce::MouseEvent& e) override;
-    /** Updates the tooltip (state in text, never colour alone). */
+    /** Updates the tooltip (state in text, never colour alone); with trayNotifications on, a new danger notice
+        pops a tray balloon while KoeLoom is not the foreground app (in a game, the window hidden). */
     void refresh();
 
 private:
     AppController& controller;
+    juce::StringArray announced;
 };
+
+/** Danger notices not in seen; seen becomes the current danger keys (one that goes and comes back is new again). */
+std::vector<Notice> newDangerNotices (const std::vector<Notice>& now, juce::StringArray& seen);
 } // namespace koe

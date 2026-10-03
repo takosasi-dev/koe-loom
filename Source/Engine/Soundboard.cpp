@@ -17,16 +17,15 @@ namespace
 juce::String u8 (const char* s) { return juce::String::fromUTF8 (s); }
 
 constexpr int kPoolVoices = 2 * kSoundboardMaxVoices; // 8 sounding + room for the ones fading out
-constexpr float kStopFadeMs = 5.0f;
 constexpr float kToneFadeMs = 10.0f;
-constexpr double kDuckAttackSeconds = 0.02, kDuckReleaseSeconds = 0.3;
 constexpr double kTestToneHz = 440.0;
 constexpr float kTestToneDb = -18.0f;
 constexpr double kMinSourceRate = 1000.0, kMaxSourceRate = 768000.0; // reject absurd headers before allocating
 constexpr int kReadChunk = 32768;
 constexpr int kCommandCapacity = 64;
 constexpr juce::uint32 kCommandMaxAgeMs = 300;
-constexpr int kCmdStopAll = -1;            // other commands: slot index to trigger
+constexpr int kCmdStopAll = -1;            // >= 0: slot index to trigger
+constexpr int kCmdStopSlot0 = -2;          // kCmdStopSlot0 - s: stop slot s
 const char* const kRetriggerIds[] = { "restart", "ignore", "overlap" };
 
 /** Decoded sound: mono at the device rate. Only the message/loader side creates and frees these. */
@@ -111,6 +110,10 @@ struct Soundboard::Impl final : private juce::Timer
     std::atomic<bool> slotLoop[kSoundboardSlots] {}, slotMonitor[kSoundboardSlots] {};
     std::atomic<int> slotRetrigger[kSoundboardSlots] {};
     std::atomic<float> duckingDb { 0.0f }, duckOut { 1.0f };
+    // detailed settings (S-03 詳細); the defaults are the old fixed values
+    std::atomic<int> maxVoices { kSoundboardMaxVoices };
+    std::atomic<float> fadeMs { kSoundFadeMs.def }, duckAttackMs { kDuckAttackMs.def }, duckReleaseMs { kDuckReleaseMs.def };
+    std::atomic<bool> monitorIncludes { true };
     std::atomic<bool> testTone { false };
     std::atomic<juce::uint32> playingMask { 0 };
     std::atomic<double> slotPosition[kSoundboardSlots] {}; // seconds, newest sounding voice; 0 when silent
@@ -128,11 +131,13 @@ struct Soundboard::Impl final : private juce::Timer
         juce::uint64 order = 0;
         float gain = 1.0f;
         int fadeLeft = -1;          // >= 0: stopping
+        int fadeLen = 1;            // length of the stop fade it started
+        int fadeInPos = 0, fadeInLen = 0; // start fade (0 = none)
     };
     Voice voices[kPoolVoices];
     juce::uint64 voiceOrder = 0;
     double tonePhase = 0.0;
-    float toneGain = 0.0f, duck = 1.0f;
+    float toneGain = 0.0f, duck = 1.0f, monGain = 1.0f;
 
     // ================================================================ message thread
     void applyAtomics (int s)
@@ -340,21 +345,29 @@ struct Soundboard::Impl final : private juce::Timer
         return n;
     }
 
-    void startVoice (int s, const Clip& clip, int stopFade) noexcept
+    static void stopVoice (Voice& v, int stopFade) noexcept
+    {
+        v.fadeLeft = stopFade;
+        v.fadeLen = stopFade;
+    }
+
+    void startVoice (int s, const Clip& clip, int stopFade, int startFade) noexcept
     {
         bool sounding = false;
         for (auto& v : voices) sounding = sounding || (v.slot == s && v.fadeLeft < 0);
         const int mode = slotRetrigger[s].load (std::memory_order_relaxed);
         if (sounding && mode == 1) return;                       // ignore
         if (sounding && mode == 0)                               // restart
-            for (auto& v : voices) if (v.slot == s && v.fadeLeft < 0) v.fadeLeft = stopFade;
+            for (auto& v : voices) if (v.slot == s && v.fadeLeft < 0) stopVoice (v, stopFade);
 
-        if (countSounding() >= kSoundboardMaxVoices)             // F-06-9: the oldest stops
+        const int limit = std::clamp (maxVoices.load (std::memory_order_relaxed), 1, kSoundboardMaxVoices);
+        while (countSounding() >= limit)                         // F-06-9: the oldest stops
         {
             Voice* oldest = nullptr;
             for (auto& v : voices)
                 if (v.slot >= 0 && v.fadeLeft < 0 && (oldest == nullptr || v.order < oldest->order)) oldest = &v;
-            if (oldest != nullptr) oldest->fadeLeft = stopFade;
+            if (oldest == nullptr) break;
+            stopVoice (*oldest, stopFade);
         }
 
         Voice* free = nullptr;
@@ -362,14 +375,18 @@ struct Soundboard::Impl final : private juce::Timer
         if (free == nullptr) // pool full (8 sounding + the rest fading): take the fading one closest to silence
             for (auto& v : voices)
                 if (v.fadeLeft >= 0 && (free == nullptr || v.fadeLeft < free->fadeLeft)) free = &v;
-        *free = { s, clip.id, 0, ++voiceOrder, slotGain[s].load (std::memory_order_relaxed), -1 };
+        *free = { s, clip.id, 0, ++voiceOrder, slotGain[s].load (std::memory_order_relaxed), -1, 1, 0, startFade };
     }
 
     void render (float* out, float* mon, int n) noexcept
     {
         renderStarts.fetch_add (1);
         const double sr = rate.load (std::memory_order_relaxed);
-        const int stopFade = std::max (1, int (dsp::msToSamples (kStopFadeMs, sr)));
+        // one fade for stop / stop all / restart / the oldest giving way; the start fades in only when the fade is set
+        // longer than the old fixed 5 ms stop fade (starts had no fade before; the default keeps that)
+        const float fade = fadeMs.load (std::memory_order_relaxed);
+        const int stopFade = std::max (1, int (dsp::msToSamples (fade, sr)));
+        const int startFade = fade > kSoundFadeMs.def ? stopFade : 0;
 
         Clip* cur[kSoundboardSlots];
         for (int s = 0; s < kSoundboardSlots; ++s) cur[s] = clips[s].load();
@@ -386,10 +403,15 @@ struct Soundboard::Impl final : private juce::Timer
             const int c = cmd.what;
             if (c == kCmdStopAll)
             {
-                for (auto& v : voices) if (v.slot >= 0 && v.fadeLeft < 0) v.fadeLeft = stopFade;
+                for (auto& v : voices) if (v.slot >= 0 && v.fadeLeft < 0) stopVoice (v, stopFade);
+            }
+            else if (c <= kCmdStopSlot0)
+            {
+                const int s = kCmdStopSlot0 - c;
+                for (auto& v : voices) if (v.slot == s && v.fadeLeft < 0) stopVoice (v, stopFade);
             }
             else if (c >= 0 && c < kSoundboardSlots && cur[c] != nullptr)
-                startVoice (c, *cur[c], stopFade);
+                startVoice (c, *cur[c], stopFade, startFade);
         }
         commandFifo.finishedRead (n1 + n2);
 
@@ -397,6 +419,9 @@ struct Soundboard::Impl final : private juce::Timer
         for (auto& v : voices)
             if (v.slot >= 0 && (cur[v.slot] == nullptr || cur[v.slot]->id != v.clipId)) v.slot = -1;
 
+        // monitorIncludeSoundboard: a global switch on top of each slot's toMonitor, ramped over the block
+        const float mon0 = monGain, monTarget = monitorIncludes.load (std::memory_order_relaxed) ? 1.0f : 0.0f;
+        const float dmon = (monTarget - mon0) / float (n);
         for (auto& v : voices)
         {
             if (v.slot < 0) continue;
@@ -414,16 +439,18 @@ struct Soundboard::Impl final : private juce::Timer
                     v.pos = 0;
                 }
                 float y = x[size_t (v.pos++)] * (g0 + dg * float (i + 1));
+                if (v.fadeInPos < v.fadeInLen) y *= float (++v.fadeInPos) / float (v.fadeInLen);
                 if (v.fadeLeft >= 0)
                 {
                     if (v.fadeLeft == 0) { v.slot = -1; break; }
-                    y *= float (v.fadeLeft--) / float (stopFade);
+                    y *= float (v.fadeLeft--) / float (v.fadeLen);
                 }
                 out[i] += y;
-                if (toMon) mon[i] += y;
+                if (toMon) mon[i] += y * (mon0 + dmon * float (i + 1));
             }
             v.gain = target;
         }
+        monGain = monTarget;
 
         // test tone (F-10-3): output only, 10 ms fades
         const bool toneOn = testTone.load (std::memory_order_relaxed);
@@ -455,7 +482,7 @@ struct Soundboard::Impl final : private juce::Timer
         playingMask.store (mask);
         const float duckDb = duckingDb.load (std::memory_order_relaxed);
         const float target = mask != 0 && duckDb < 0.0f ? dsp::dbToGain (duckDb) : 1.0f;
-        const double tau = target < duck ? kDuckAttackSeconds : kDuckReleaseSeconds;
+        const double tau = (target < duck ? duckAttackMs : duckReleaseMs).load (std::memory_order_relaxed) / 1000.0;
         duck = target + (duck - target) * float (std::exp (-double (n) / sr / tau));
         duckOut.store (duck, std::memory_order_relaxed);
         renderEnds.fetch_add (1);
@@ -591,9 +618,18 @@ long long Soundboard::getTotalBytes() const
 }
 
 void Soundboard::trigger (int slot) { if (validSlot (slot)) impl->pushCommand (slot); }
+void Soundboard::stopSlot (int slot) { if (validSlot (slot)) impl->pushCommand (kCmdStopSlot0 - slot); }
 void Soundboard::stopAll() { impl->pushCommand (kCmdStopAll); }
 void Soundboard::setDuckingDb (float db) { impl->duckingDb.store (std::isfinite (db) ? kDuckingDb.clamp (db) : 0.0f); }
 void Soundboard::setTestTone (bool on) { impl->testTone.store (on); }
+void Soundboard::setMaxVoices (int n) { impl->maxVoices.store (std::clamp (n, 1, kSoundboardMaxVoices)); }
+void Soundboard::setFadeMs (float ms) { impl->fadeMs.store (std::isfinite (ms) ? kSoundFadeMs.clamp (ms) : kSoundFadeMs.def); }
+void Soundboard::setDuckTimes (float attackMs, float releaseMs)
+{
+    impl->duckAttackMs.store (std::isfinite (attackMs) ? kDuckAttackMs.clamp (attackMs) : kDuckAttackMs.def);
+    impl->duckReleaseMs.store (std::isfinite (releaseMs) ? kDuckReleaseMs.clamp (releaseMs) : kDuckReleaseMs.def);
+}
+void Soundboard::setMonitorIncludesSounds (bool on) { impl->monitorIncludes.store (on); }
 void Soundboard::render (float* toOutput, float* toMonitor, int numSamples) { impl->render (toOutput, toMonitor, numSamples); }
 float Soundboard::voiceDuckGain() const { return impl->duckOut.load (std::memory_order_relaxed); }
 } // namespace koe

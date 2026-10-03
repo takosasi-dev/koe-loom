@@ -3,6 +3,7 @@
 #include "Core/Paths.h"
 #include "Effects/EffectRegistry.h"
 #include "Platform/AutoStart.h"
+#include "Platform/Log.h"
 
 #include <algorithm>
 #include <cmath>
@@ -67,9 +68,9 @@ AppController::AppController (bool openDevices) : allowDevices (openDevices)
         };
         engine->onDeviceError = [this] (const juce::String& msg)
         {
-            juce::Logger::writeToLog ("device error: " + msg);
+            logging::write (logging::error, "device error: " + msg);
             deviceLost = true;
-            reopenCountdown = 30; // try again in ~1 s
+            reopenCountdown = reconnectTicks(); // try again in reconnectSeconds (1 s by default)
             addNotice ({ "device.lost", NoticeLevel::danger, u8 ("オーディオデバイスが止まりました（抜かれた可能性があります）。戻ると自動で再開します。"), false });
             sendChangeMessage();
         };
@@ -90,6 +91,7 @@ AppController::~AppController()
     processor.setMonitorSink (nullptr);
     if (engine != nullptr) engine->close();
     if (monitor != nullptr) monitor->close();
+    if (logFilter != nullptr && juce::Logger::getCurrentLogger() == logFilter.get()) juce::Logger::setCurrentLogger (logTarget);
 }
 
 // ============================================================================ startup / shutdown
@@ -103,6 +105,9 @@ void AppController::startup()
     for (auto& k : lr.clampedKeys) juce::Logger::writeToLog ("settings: clamped " + k);
     if (isCableInputName (settings.monitorDevice)) settings.monitorDevice = {}; // F-01-6, also for a hand-edited file
     if (settings.outputGainDb > kOutputGainWarnDb) setOutputGainDb (settings.outputGainDb); // F-12-4 at startup
+    if (settings.startupVoice != 0) settings.voiceChangerOn = settings.startupVoice == 1; // S-03 詳細 (0 = as left)
+    if (! settings.startupLastPreset) settings.currentPresetId = "natural-asis";
+    applyPlatformSettings (nullptr);
 
     for (auto& n : library->reload())
         addNotice ({ "presets.load", NoticeLevel::info, n });
@@ -154,11 +159,12 @@ void AppController::shutdown()
 {
     stopTimer();
     settings.hasSavedDevices = true;
-    if (! saveSettings (settings, paths::settingsFile())) juce::Logger::writeToLog ("settings: save failed");
+    if (! saveSettings (settings, paths::settingsFile())) logging::write (logging::error, "settings: save failed");
     soundboard->save (paths::soundboardFile());
     cableProbe->stop();
     closeDevices();
     if (hotkeys != nullptr) hotkeys->unregisterAll();
+    finishUpdateOnQuit(); // §7.4: a ready update replaces the exe when the app quits
 }
 
 // ============================================================================ devices
@@ -283,7 +289,18 @@ void AppController::openDevicesIfReady()
 
     // the audio thread starts inside open(): hide the pitch provider until it is prepared for the new rate
     processor.setScaleLayerPitch (nullptr);
-    const auto err = engine->open (settings.inputDevice, settings.outputDevice, settings.sampleRate, settings.bufferSize);
+    auto err = engine->open (settings.inputDevice, settings.outputDevice, settings.sampleRate, settings.bufferSize, settings.wasapiExclusive);
+    removeNotice ("device.exclusive");
+    if (err.isNotEmpty() && settings.wasapiExclusive)
+    {
+        // S-03 詳細: exclusive refused -> E-04 notice, carry on in shared mode
+        logging::write (logging::error, "exclusive open failed: " + err);
+        addNotice ({ "device.exclusive", NoticeLevel::warning,
+                     u8 ("排他モードで開けなかったため、共有モードで開きました（") + err
+                         + u8 ("）。他のアプリがデバイスを使っていないか確認してください。"), true,
+                     u8 ("設定で変更"), "openSettings.devices" });
+        err = engine->open (settings.inputDevice, settings.outputDevice, settings.sampleRate, settings.bufferSize, false);
+    }
     scalePitch.prepare (processor.getSampleRate(), processor.getMaxBlockSize());
     processor.setScaleLayerPitch (&scalePitch);
     if (err.isNotEmpty())
@@ -293,7 +310,7 @@ void AppController::openDevicesIfReady()
         addNotice ({ "device.open", NoticeLevel::danger,
                      u8 ("デバイスを開けませんでした（") + err + u8 ("）。他のアプリが排他モードで使っていないか確認してください。"), true,
                      u8 ("設定で変更"), "openSettings.devices" });
-        juce::Logger::writeToLog ("open failed: " + err);
+        logging::write (logging::error, "open failed: " + err);
         return;
     }
     deviceLost = false;
@@ -304,7 +321,7 @@ void AppController::openDevicesIfReady()
     if (settings.noiseSuppressionOn && std::abs (rate - 48000.0) > 1.0)
         toast (u8 ("ノイズ抑制は 48000 Hz でだけ使えます。"));
     juce::Logger::writeToLog ("opened: in=" + settings.inputDevice + " out=" + settings.outputDevice + " rate=" + juce::String (rate)
-                              + " buffer=" + juce::String (engine->getBufferSize()));
+                              + " buffer=" + juce::String (engine->getBufferSize()) + (engine->isExclusive() ? " exclusive" : ""));
     applyEnvironment();
     applyPresetToEngine (true); // the processor was re-prepared: build the chain for its block size
     soundboard->prepare (rate);
@@ -374,7 +391,7 @@ void AppController::setVoiceChangerOn (bool on)
 void AppController::setMicMuted (bool on)
 {
     micMuted = on;
-    processor.setMicMute (on);
+    applyMicMute();
     sendChangeMessage();
 }
 
@@ -737,6 +754,7 @@ void AppController::nextFavorite (bool fromHotkey)
 {
     if (settings.favorites.isEmpty()) return;
     const int i = settings.favorites.indexOf (juce::String (currentBaseId));
+    if (! settings.favoriteWrap && i == settings.favorites.size() - 1) return; // at the last one
     loadFavorite (i < 0 ? 0 : (i + 1) % settings.favorites.size(), fromHotkey);
 }
 
@@ -745,6 +763,7 @@ void AppController::prevFavorite (bool fromHotkey)
     if (settings.favorites.isEmpty()) return;
     const int n = settings.favorites.size();
     const int i = settings.favorites.indexOf (juce::String (currentBaseId));
+    if (! settings.favoriteWrap && i == 0) return; // at the first one
     loadFavorite (i < 0 ? n - 1 : (i + n - 1) % n, fromHotkey);
 }
 
@@ -756,8 +775,9 @@ void AppController::applyEnvironment()
     processor.setGate (settings.gateOn, settings.gateThresholdDb, settings.gateAttackMs, settings.gateHoldMs, settings.gateReleaseMs);
     processor.setOutputGainDb (settings.outputGainDb);
     processor.setVoiceChangerOn (settings.voiceChangerOn);
-    processor.setMicMute (micMuted);
+    applyMicMute();
     monitor->setVolumeDb (settings.monitorVolumeDb);
+    applyAudioSettings (nullptr);
 }
 
 void AppController::setInputGainDb (float db)
@@ -837,10 +857,10 @@ void AppController::setMonitorOn (bool on)
 
 void AppController::monitorDeviceGone (const juce::String& openError)
 {
-    juce::Logger::writeToLog ("monitor device " + (openError.isEmpty() ? juce::String ("stopped") : "open failed: " + openError));
+    logging::write (logging::error, "monitor device " + (openError.isEmpty() ? juce::String ("stopped") : "open failed: " + openError));
     monitor->close();
     monitorLost = true;
-    monitorRetryCountdown = 30; // try again in ~1 s
+    monitorRetryCountdown = reconnectTicks(); // try again in reconnectSeconds (1 s by default)
     addNotice ({ "monitor.lost", NoticeLevel::warning,
                  openError.isEmpty()
                      ? u8 ("モニターのデバイスが止まりました（抜かれた可能性があります）。戻ると自動で再開します。") // F-01-4
@@ -854,7 +874,7 @@ void AppController::reopenMonitor()
     if (allowDevices)
         if (const auto err = monitor->open (settings.monitorDevice, processor.getSampleRate()); err.isNotEmpty())
         {
-            monitorRetryCountdown = 30;
+            monitorRetryCountdown = reconnectTicks();
             return;
         }
     monitor->setEnabled (true);
@@ -875,9 +895,12 @@ bool AppController::isMonitorDeviceSpeaker() const { return looksLikeSpeaker (se
 
 void AppController::updateSettings (const std::function<void (Settings&)>& change)
 {
+    const Settings before = settings;
     change (settings);
     settings = clampSettings (settings);
     soundboard->setDuckingDb (settings.duckingDb);
+    applyAudioSettings (&before);
+    applyPlatformSettings (&before);
     saveSettingsSoon();
     sendChangeMessage();
 }
@@ -940,8 +963,29 @@ void AppController::reapplyHotkeys()
 
 void AppController::performAction (const juce::String& a)
 {
-    if (a == "voiceToggle") setVoiceChangerOn (! settings.voiceChangerOn);
-    else if (a == "muteToggle") setMicMuted (! micMuted);
+    logging::write (logging::detail, "action: " + a);
+    const auto presetBefore = currentBaseId;
+    if (a == "voiceToggle")
+    {
+        setVoiceChangerOn (! settings.voiceChangerOn);
+        hotkeyToast (settings.voiceChangerOn ? u8 ("ボイチェン ON") : u8 ("ボイチェン OFF"));
+    }
+    else if (a == "muteToggle")
+    {
+        setMicMuted (! micMuted);
+        hotkeyToast (micMuted ? u8 ("マイクミュート ON") : u8 ("マイクミュート OFF"));
+    }
+    else if (a == "pushToTalk")
+    {
+        if (settings.pushToTalk == 0) return; // S-03 詳細: off = the key does nothing
+        pttKey = 0;
+        for (auto& h : settings.hotkeys)
+            if (h.action == a) pttKey = h.virtualKey;
+        pttHeld = true;
+        pttTailMs = 0.0f;
+        applyMicMute();
+        sendChangeMessage();
+    }
     else if (a == "favoriteNext") nextFavorite (true);
     else if (a == "favoritePrev") prevFavorite (true);
     else if (a.startsWith ("favorite.")) loadFavorite (a.fromFirstOccurrenceOf (".", false, false).getIntValue() - 1, true);
@@ -952,10 +996,14 @@ void AppController::performAction (const juce::String& a)
         {
             juce::String why;
             if (! setSlotEnabled (i, ! current.chain[size_t (i)].enabled, why)) toast (why);
+            else
+                hotkeyToast (u8 ("スロット ") + juce::String (i + 1) + u8 ("（") + effectName (current.chain[size_t (i)].type) + u8 ("）")
+                             + (current.chain[size_t (i)].enabled ? " ON" : " OFF"));
             sendChangeMessage();
         }
     }
     else if (a.startsWith ("sound.")) soundboard->trigger (a.fromFirstOccurrenceOf (".", false, false).getIntValue() - 1);
+    else if (a.startsWith ("soundStop.")) soundboard->stopSlot (a.fromFirstOccurrenceOf (".", false, false).getIntValue() - 1);
     else if (a == "soundStopAll") soundboard->stopAll();
     else if (a == "freezeToggle" || a == "looperRecPlay" || a == "looperClear")
     {
@@ -966,6 +1014,9 @@ void AppController::performAction (const juce::String& a)
     }
     else if (a == "show") { if (onShowWindowRequest) onShowWindowRequest(); }
     else if (a == "quit") { if (onQuitRequest) onQuitRequest(); }
+    else if (a == "closeWindow") { if (settings.closeAction == 1 && onQuitRequest) onQuitRequest(); } // × button; 0 = stay in the tray
+
+    if (currentBaseId != presetBefore) hotkeyToast (u8 ("プリセット: ") + current.name);
 }
 
 // ============================================================================ soundboard / setup
@@ -1047,6 +1098,7 @@ void AppController::timerCallback()
 {
     ++ticks;
     processor.collectGarbage();
+    pollUpdater(); // §7.4
     if (limiterHold > 0) --limiterHold;
 
     // F-04-11: NaN auto-bypass reported by the chain -> keep the model in sync and tell the user
@@ -1091,7 +1143,7 @@ void AppController::timerCallback()
         {
             rescanDevices();
             if (inputs.contains (settings.inputDevice) && outputs.contains (settings.outputDevice)) openDevicesIfReady();
-            if (deviceLost) reopenCountdown = 30;
+            if (deviceLost) reopenCountdown = reconnectTicks();
         }
 
         // E-06: 10 XRUNs within 10 s
@@ -1111,8 +1163,9 @@ void AppController::timerCallback()
     {
         rescanDevices();
         if (! allowDevices || outputs.contains (settings.monitorDevice)) reopenMonitor();
-        else monitorRetryCountdown = 30;
+        else monitorRetryCountdown = reconnectTicks();
     }
+    tickPushToTalk();
 
     if (saveCountdown > 0 && --saveCountdown == 0)
     {

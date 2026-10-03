@@ -14,12 +14,17 @@ void atomicMax (std::atomic<float>& a, float v) noexcept
     float cur = a.load (std::memory_order_relaxed);
     while (v > cur && ! a.compare_exchange_weak (cur, v, std::memory_order_relaxed)) {}
 }
+
+constexpr int kMaxConverterLatency = 4096;  // dry delay room for any quality's converter (quality 2: 2047)
+// automatic input level (S-03 詳細): slow on purpose, never pumps on syllables
+constexpr float kAgcPowerMs = 300.0f, kAgcRiseMs = 2000.0f, kAgcFallMs = 300.0f;
+constexpr float kAgcHoldBelowDb = -50.0f, kAgcMaxCutDb = 24.0f;
 } // namespace
 
 VoiceProcessor::VoiceProcessor()
 {
     // candidate B: Signalsmith (A) misses AC-04 by tens of cents at blocks short enough for §5.4
-    shifterFactory = [] { return createPhaseVocoderShifter(); };
+    shifterFactory = [] (int q) { return createConverterShifter (q); };
 }
 
 VoiceProcessor::~VoiceProcessor()
@@ -28,14 +33,35 @@ VoiceProcessor::~VoiceProcessor()
     if (fadingOut != active) delete fadingOut;
     delete active;
     for (auto& r : retired) delete r.exchange (nullptr);
+    delete pendingSet.exchange (nullptr);
+    delete next;
+    for (auto& r : retiredSets) delete r.exchange (nullptr);
 }
 
-void VoiceProcessor::setShifterFactory (std::function<std::unique_ptr<IVoiceShifter>()> factory) { shifterFactory = std::move (factory); }
+void VoiceProcessor::setShifterFactory (std::function<std::unique_ptr<IVoiceShifter>()> factory)
+{
+    shifterFactory = [f = std::move (factory)] (int) { return f(); };
+}
 
 void VoiceProcessor::setGate (bool on, float thresholdDb, float attackMs, float holdMs, float releaseMs) noexcept
 {
     gate.setParams (kGateThresholdDb.clamp (thresholdDb), kGateAttackMs.clamp (attackMs), kGateHoldMs.clamp (holdMs), kGateReleaseMs.clamp (releaseMs));
     gateOn.store (on);
+}
+
+void VoiceProcessor::setAgc (bool on, float targetDb, float maxGainDb) noexcept
+{
+    agcTargetDb.store (kAgcTargetDb.clamp (targetDb));
+    agcMaxGainDb.store (kAgcMaxGainDb.clamp (maxGainDb));
+    agcOn.store (on);
+}
+
+void VoiceProcessor::setLimiter (float ceilingDb, float releaseMs) noexcept
+{
+    limiterCeilingDb.store (kLimiterCeilingSetDb.clamp (ceilingDb));
+    limiterReleaseMs.store (kLimiterReleaseMs.clamp (releaseMs));
+    limiter.setCeilingDb (limiterCeilingDb.load());
+    limiter.setReleaseMs (limiterReleaseMs.load());
 }
 
 void VoiceProcessor::setShifter (bool has, float p, float f) noexcept
@@ -61,6 +87,44 @@ void VoiceProcessor::setLayer (int index, const LayerParams& p) noexcept
 
 void VoiceProcessor::autoStopLayers() noexcept { layersAutoStopped.store (true); }
 
+bool VoiceProcessor::anyLayerRunning() const noexcept
+{
+    for (const auto* s : { cur.get(), next })
+        if (s != nullptr)
+            for (bool r : s->layerRunning)
+                if (r) return true;
+    return false;
+}
+
+std::unique_ptr<VoiceProcessor::ShifterSet> VoiceProcessor::makeShifterSet (int q) const
+{
+    auto s = std::make_unique<ShifterSet>();
+    s->main = shifterFactory (q);
+    s->main->prepare (sampleRate, maxBlock);
+    for (auto& l : s->layers)
+    {
+        l = shifterFactory (q);
+        l->prepare (sampleRate, maxBlock);
+    }
+    s->latency = s->main->getLatencySamples();
+    s->mainShiftMix.prepare (sampleRate, kShifterCrossfadeMs);
+    s->mainShiftMix.snap (0.0f);
+    for (auto& g : s->layerGain) { g.prepare (sampleRate, kLayerFadeMs); g.snap (0.0f); }
+    return s;
+}
+
+void VoiceProcessor::setConverterQuality (int q)
+{
+    q = std::clamp (q, 0, 2);
+    if (q == quality) return;
+    quality = q;
+    if (! prepared) return; // prepare() builds the converters at this quality
+    auto s = makeShifterSet (q);
+    if (s->latency + maxBlock + 8 > dryDelay.capacity()) return; // a custom factory far beyond any quality: keep the old one
+    shifterLatency = s->latency;
+    delete pendingSet.exchange (s.release(), std::memory_order_acq_rel); // a set the audio thread never took
+}
+
 void VoiceProcessor::prepare (double sr, int maxBlockSize)
 {
     const int block = std::clamp (maxBlockSize, 64, kMaxBlockSize);
@@ -78,19 +142,21 @@ void VoiceProcessor::prepare (double sr, int maxBlockSize)
 
     ns.prepare (sr, maxBlock);
     gate.prepare (sr);
-    limiter.prepare (sr);
+    limiter.prepare (sr, limiterCeilingDb.load(), 1.0f, limiterReleaseMs.load());
 
-    mainShifter = shifterFactory();
-    mainShifter->prepare (sr, maxBlock);
-    for (auto& s : layerShifters)
-    {
-        s = shifterFactory();
-        s->prepare (sr, maxBlock);
-    }
-    shifterLatency = mainShifter->getLatencySamples();
-    dryDelay.prepare (shifterLatency + maxBlock + 8);
+    // converters at the current quality; anything still on its way is dropped (no audio thread runs here)
+    delete pendingSet.exchange (nullptr);
+    delete next;
+    next = nullptr;
+    for (auto& r : retiredSets) delete r.exchange (nullptr);
+    cur = makeShifterSet (quality);
+    shifterLatency = cur->latency;
+    dryDelay.prepare (std::max (shifterLatency, kMaxConverterLatency) + maxBlock + 8);
+    swapWait = 0;
+    swapFade.prepare (sr, kChainSwapFadeMs);
+    swapFade.snap (0.0f);
 
-    for (auto* b : { &bufIn, &bufNs, &bufVoice, &bufMain, &bufShift, &bufLayer, &bufChainOld, &bufMon, &bufAuxOut })
+    for (auto* b : { &bufIn, &bufNs, &bufVoice, &bufMain, &bufNext, &bufShift, &bufLayer, &bufChainOld, &bufMon, &bufAuxOut })
         b->assign (size_t (maxBlock), 0.0f);
 
     inGain.prepare (sr, kParamSmoothMs);     inGain.snap (dsp::dbToGain (inputGainDb.load()));
@@ -100,17 +166,18 @@ void VoiceProcessor::prepare (double sr, int maxBlockSize)
     voiceMix.prepare (sr, kVoiceToggleFadeMs); voiceMix.snap (voiceOn.load() ? 1.0f : 0.0f);
     nsMix.prepare (sr, 20.0f);               nsMix.snap (noiseOn.load() && ns.isAvailable() ? 1.0f : 0.0f);
     startFade.prepare (sr, kStartupFadeMs);  startFade.snap (0.0f); startFade.setTarget (1.0f);
-    mainShiftMix.prepare (sr, kShifterCrossfadeMs); mainShiftMix.snap (0.0f);
     duckGain.prepare (sr, 50.0f);            duckGain.snap (1.0f);
     chainFade.prepare (sr, kChainSwapFadeMs); chainFade.snap (1.0f);
-    for (auto& g : layerGain) { g.prepare (sr, kLayerFadeMs); g.snap (0.0f); }
+    highPassMix.prepare (sr, 20.0f);         highPassMix.snap (0.0f);
+    agcGain.prepare (sr, kParamSmoothMs);    agcGain.snap (1.0f);
+    highPass.reset();
+    agcPowerCoeff = dsp::onePoleCoeff (kAgcPowerMs, sr);
+    agcPower = 0.0f;
+    agcGainDb = 0.0f;
     layerCutSteps = std::max (1, int (sr * kScaleLayerCutMs * 0.001));
 
-    mainRunning = false;
-    mainWarmLeft = 0;
-    layerRunning.fill (false);
-    layerWarmLeft.fill (0);
     voicePathRunning = voiceOn.load();
+    prepared = true;
 }
 
 void VoiceProcessor::process (const float* in, float* outL, float* outR, int numSamples)
@@ -156,6 +223,32 @@ void VoiceProcessor::processBlock (const float* in, float* outL, float* outR, in
     atomicMax (inPeak, ip);
     if (clip) inClip.store (true, std::memory_order_relaxed);
 
+    // 1b) input low cut (S-03 詳細), before noise suppression: crossfaded on toggle, the cutoff glides per block
+    const bool hpWant = highPassOn.load (std::memory_order_relaxed);
+    if (hpWant && highPassMix.value <= 0.0f && ! highPassMix.isRamping())
+    {
+        highPass.reset();
+        highPassCurHz = highPassHz.load (std::memory_order_relaxed);
+        highPass.setHighpass (sampleRate, highPassCurHz);
+    }
+    highPassMix.setTarget (hpWant ? 1.0f : 0.0f);
+    if (highPassMix.value > 0.0f || highPassMix.isRamping())
+    {
+        const float want = highPassHz.load (std::memory_order_relaxed);
+        if (want != highPassCurHz)
+        {
+            highPassCurHz += 0.3f * (want - highPassCurHz);
+            if (std::abs (want - highPassCurHz) < 0.5f) highPassCurHz = want;
+            highPass.setHighpass (sampleRate, highPassCurHz);
+        }
+        for (int i = 0; i < n; ++i)
+        {
+            const float m = highPassMix.next();
+            const float y = highPass.process (bufIn[size_t (i)]);
+            bufIn[size_t (i)] += m * (y - bufIn[size_t (i)]);
+        }
+    }
+
     // 2) noise suppression, crossfaded on toggle because it changes the path delay
     const bool nsWant = noiseOn.load (std::memory_order_relaxed) && ns.isAvailable();
     if (nsWant && nsMix.value <= 0.0f && ! nsMix.isRamping()) ns.reset(); // stale FIFO from last time
@@ -169,6 +262,38 @@ void VoiceProcessor::processBlock (const float* in, float* outL, float* outR, in
             const float m = nsMix.next();
             bufIn[size_t (i)] += m * (bufNs[size_t (i)] - bufIn[size_t (i)]);
         }
+    }
+
+    // 2b) automatic input level (S-03 詳細), before the gate: slow, holds while the input is quiet
+    const bool agcWant = agcOn.load (std::memory_order_relaxed);
+    if (agcWant || agcGain.value != 1.0f || agcGain.isRamping())
+    {
+        float target = 1.0f;
+        if (agcWant)
+        {
+            for (int i = 0; i < n; ++i)
+            {
+                const float s2 = bufIn[size_t (i)] * bufIn[size_t (i)];
+                agcPower = s2 + agcPowerCoeff * (agcPower - s2);
+            }
+            const float maxGain = agcMaxGainDb.load (std::memory_order_relaxed);
+            const float levelDb = 10.0f * std::log10 (agcPower + 1.0e-12f);
+            if (levelDb > kAgcHoldBelowDb)
+            {
+                const float want = std::clamp (agcTargetDb.load (std::memory_order_relaxed) - levelDb, -kAgcMaxCutDb, maxGain);
+                const float tauMs = want > agcGainDb ? kAgcRiseMs : kAgcFallMs;
+                agcGainDb = want + std::exp (-float (n) / (float (sampleRate) * tauMs * 0.001f)) * (agcGainDb - want);
+            }
+            agcGainDb = std::min (agcGainDb, maxGain);
+            target = dsp::dbToGain (agcGainDb);
+        }
+        else
+        {
+            agcPower = 0.0f; // next time starts from 0 dB
+            agcGainDb = 0.0f;
+        }
+        agcGain.setTarget (target, agcWant ? n : agcGain.steps); // linear over the block (no zipper); 30 ms back to 1
+        for (int i = 0; i < n; ++i) bufIn[size_t (i)] *= agcGain.next();
     }
 
     // 3) gate, 4) mic mute (30 ms, F-08-8)
@@ -217,21 +342,107 @@ void VoiceProcessor::processBlock (const float* in, float* outL, float* outR, in
     if (auto* sink = monitor.load (std::memory_order_acquire)) sink->push (bufMon.data(), n);
 }
 
+bool VoiceProcessor::retireCurrentSet() noexcept
+{
+    for (auto& r : retiredSets)
+    {
+        ShifterSet* expected = nullptr;
+        if (r.compare_exchange_strong (expected, cur.get()))
+        {
+            cur.release();
+            cur.reset (next);
+            next = nullptr;
+            return true;
+        }
+    }
+    return false; // every retire slot is full: keep both and retry next block
+}
+
+void VoiceProcessor::renderShifters (ShifterSet& s, const float* x, float* out, int n, const VoiceBlock& v)
+{
+    // the delayed dry signal is the main voice when there is nothing to convert (F-02-9)
+    for (int i = 0; i < n; ++i) out[i] = dryDelay.readInt (s.latency + n - 1 - i);
+
+    // ---- main voice ----
+    if (v.desired && ! s.mainRunning)
+    {
+        s.main->setPitchSemitones (v.pitch);
+        s.main->setFormantSemitones (v.formant);
+        s.main->reset();
+        s.mainRunning = true;
+        s.mainWarmLeft = s.latency;
+        s.mainShiftMix.snap (0.0f);
+    }
+    if (s.mainRunning)
+    {
+        if (v.desired)
+        {
+            s.main->setPitchSemitones (v.pitch);
+            s.main->setFormantSemitones (v.formant);
+        }
+        s.main->process (x, bufShift.data(), n);
+        if (s.mainWarmLeft > 0) s.mainWarmLeft -= n;
+        s.mainShiftMix.setTarget (v.desired && s.mainWarmLeft <= 0 ? 1.0f : 0.0f);
+        for (int i = 0; i < n; ++i)
+        {
+            const float m = s.mainShiftMix.next();
+            out[i] += m * (bufShift[size_t (i)] - out[i]);
+        }
+        if (! v.desired && ! s.mainShiftMix.isRamping() && s.mainShiftMix.value <= 0.0f) s.mainRunning = false;
+    }
+
+    // ---- layers (fixed order: main, layer 1, layer 2 — F-15-3) ----
+    for (int li = 0; li < kMaxLayers; ++li)
+    {
+        const auto& l = v.layers[size_t (li)];
+        auto& shifter = *s.layers[size_t (li)];
+        auto& gain = s.layerGain[size_t (li)];
+        auto& running = s.layerRunning[size_t (li)];
+        auto& warm = s.layerWarmLeft[size_t (li)];
+        if (l.act && ! running)
+        {
+            shifter.setPitchSemitones (l.pitch);
+            shifter.setFormantSemitones (l.formant);
+            shifter.reset();
+            running = true;
+            warm = s.latency;
+            gain.snap (0.0f);
+        }
+        if (! running) continue;
+        if (l.act)
+        {
+            shifter.setPitchSemitones (l.pitch);
+            shifter.setFormantSemitones (l.formant);
+        }
+        shifter.process (x, bufLayer.data(), n);
+        if (warm > 0) warm -= n;
+        if (l.cut) gain.setTarget (0.0f, layerCutSteps);
+        else gain.setTarget (l.act && warm <= 0 ? l.gain : 0.0f);
+        for (int i = 0; i < n; ++i) out[i] += gain.next() * bufLayer[size_t (i)];
+        if (! l.act && ! gain.isRamping() && gain.value <= 0.0f) running = false;
+    }
+}
+
 void VoiceProcessor::processVoicePath (float* x, int n)
 {
-    // the delayed dry signal is the main voice when there is nothing to convert (F-02-9);
-    // keep it fed even while the voice changer is OFF so switching ON never replays stale audio
-    for (int i = 0; i < n; ++i)
-    {
-        dryDelay.push (x[i]);
-        bufMain[size_t (i)] = dryDelay.readInt (shifterLatency);
-    }
+    // keep the dry delay fed even while the voice changer is OFF so switching ON never replays stale audio
+    for (int i = 0; i < n; ++i) dryDelay.push (x[i]);
+
+    // a converter set of another quality: warm it up beside the running one, then crossfade (like the chain swap)
+    if (next == nullptr)
+        if (auto* s = pendingSet.exchange (nullptr, std::memory_order_acq_rel))
+        {
+            next = s;
+            swapWait = s->latency + std::max (1, int (sampleRate * kLayerFadeMs * 0.001)); // its own warm-up fades done
+            swapFade.snap (0.0f);
+        }
 
     const bool on = voiceOn.load (std::memory_order_relaxed);
     voiceMix.setTarget (on ? 1.0f : 0.0f);
     if (! on && ! voiceMix.isRamping() && voiceMix.value <= 0.0f)
     {
         voicePathRunning = false;
+        if (next != nullptr) retireCurrentSet(); // nothing is heard: switch at once
         std::copy (x, x + n, bufVoice.begin());
         return;
     }
@@ -240,45 +451,18 @@ void VoiceProcessor::processVoicePath (float* x, int n)
         // OFF -> ON: start effects and converters from a clean state
         voicePathRunning = true;
         if (active != nullptr) active->resetAll();
-        mainRunning = false;
-        mainShiftMix.snap (0.0f);
-        layerRunning.fill (false);
-        for (auto& g : layerGain) g.snap (0.0f);
+        cur->mainRunning = false;
+        cur->mainShiftMix.snap (0.0f);
+        cur->layerRunning.fill (false);
+        for (auto& g : cur->layerGain) g.snap (0.0f);
     }
 
-    // ---- main voice ----
+    // ---- this block's voice parameters ----
+    VoiceBlock vb;
     const bool hs = hasShifter.load (std::memory_order_relaxed);
-    const float p = pitchSt.load (std::memory_order_relaxed);
-    const float f = formantSt.load (std::memory_order_relaxed);
-    const bool desired = hs && (p != 0.0f || f != 0.0f);
-    if (desired && ! mainRunning)
-    {
-        mainShifter->setPitchSemitones (p);
-        mainShifter->setFormantSemitones (f);
-        mainShifter->reset();
-        mainRunning = true;
-        mainWarmLeft = shifterLatency;
-        mainShiftMix.snap (0.0f);
-    }
-    if (mainRunning)
-    {
-        if (desired)
-        {
-            mainShifter->setPitchSemitones (p);
-            mainShifter->setFormantSemitones (f);
-        }
-        mainShifter->process (x, bufShift.data(), n);
-        if (mainWarmLeft > 0) mainWarmLeft -= n;
-        mainShiftMix.setTarget (desired && mainWarmLeft <= 0 ? 1.0f : 0.0f);
-        for (int i = 0; i < n; ++i)
-        {
-            const float m = mainShiftMix.next();
-            bufMain[size_t (i)] += m * (bufShift[size_t (i)] - bufMain[size_t (i)]);
-        }
-        if (! desired && ! mainShiftMix.isRamping() && mainShiftMix.value <= 0.0f) mainRunning = false;
-    }
-
-    // ---- layers (fixed order: main, layer 1, layer 2 — F-15-3) ----
+    vb.pitch = pitchSt.load (std::memory_order_relaxed);
+    vb.formant = formantSt.load (std::memory_order_relaxed);
+    vb.desired = hs && (vb.pitch != 0.0f || vb.formant != 0.0f);
     auto* sp = scalePitch.load (std::memory_order_acquire);
     if (sp != nullptr)
     {
@@ -290,49 +474,47 @@ void VoiceProcessor::processVoicePath (float* x, int n)
     for (int li = 0; li < kMaxLayers; ++li)
     {
         auto& ctl = layerCtl[size_t (li)];
-        bool act = ctl.active.load (std::memory_order_relaxed) && hs && ! layersStopped;
-        float lp = ctl.pitchSt.load (std::memory_order_relaxed);
-        bool cut = false;
-        if (act && ctl.scale.load (std::memory_order_relaxed))
+        auto& l = vb.layers[size_t (li)];
+        l.act = ctl.active.load (std::memory_order_relaxed) && hs && ! layersStopped;
+        l.pitch = ctl.pitchSt.load (std::memory_order_relaxed);
+        if (l.act && ctl.scale.load (std::memory_order_relaxed))
         {
-            lp = sp != nullptr ? sp->layerSemitones (ctl.key.load(), ctl.minor.load(), ctl.degree.load()) : std::nanf ("");
-            if (! std::isfinite (lp)) act = false, cut = true; // no pitch detected: silent within 20 ms (E-28)
-            else lp = kPitchSt.clamp (lp);
+            l.pitch = sp != nullptr ? sp->layerSemitones (ctl.key.load(), ctl.minor.load(), ctl.degree.load()) : std::nanf ("");
+            if (! std::isfinite (l.pitch)) l.act = false, l.cut = true; // no pitch detected: silent within 20 ms (E-28)
+            else l.pitch = kPitchSt.clamp (l.pitch);
         }
-        auto& shifter = *layerShifters[size_t (li)];
-        auto& gain = layerGain[size_t (li)];
-        if (act && ! layerRunning[size_t (li)])
-        {
-            shifter.setPitchSemitones (lp);
-            shifter.setFormantSemitones (ctl.formantSt.load());
-            shifter.reset();
-            layerRunning[size_t (li)] = true;
-            layerWarmLeft[size_t (li)] = shifterLatency;
-            gain.snap (0.0f);
-        }
-        if (! layerRunning[size_t (li)]) continue;
-        if (act)
-        {
-            shifter.setPitchSemitones (lp);
-            shifter.setFormantSemitones (ctl.formantSt.load (std::memory_order_relaxed));
-        }
-        shifter.process (x, bufLayer.data(), n);
-        if (layerWarmLeft[size_t (li)] > 0) layerWarmLeft[size_t (li)] -= n;
-        if (cut) gain.setTarget (0.0f, layerCutSteps);
-        else gain.setTarget (act && layerWarmLeft[size_t (li)] <= 0 ? dsp::dbToGain (ctl.levelDb.load (std::memory_order_relaxed)) : 0.0f);
-        for (int i = 0; i < n; ++i) bufMain[size_t (i)] += gain.next() * bufLayer[size_t (i)];
-        if (! act && ! gain.isRamping() && gain.value <= 0.0f) layerRunning[size_t (li)] = false;
+        l.formant = ctl.formantSt.load (std::memory_order_relaxed);
+        l.gain = dsp::dbToGain (ctl.levelDb.load (std::memory_order_relaxed));
     }
 
-    // ---- chain, swapped with a 30 ms crossfade (F-04-6) ----
+    // ---- main voice + layers, crossfaded to the incoming converter set when there is one ----
+    renderShifters (*cur, x, bufMain.data(), n, vb);
+    if (next != nullptr)
+    {
+        renderShifters (*next, x, bufNext.data(), n, vb);
+        if (swapWait > 0)
+            swapWait -= n;
+        else
+        {
+            swapFade.setTarget (1.0f);
+            for (int i = 0; i < n; ++i)
+            {
+                const float c = swapFade.next();
+                bufMain[size_t (i)] += c * (bufNext[size_t (i)] - bufMain[size_t (i)]);
+            }
+            if (! swapFade.isRamping()) retireCurrentSet();
+        }
+    }
+
+    // ---- chain, swapped with a crossfade (F-04-6, presetCrossfadeMs) ----
     if (! chainFade.isRamping() && fadingOut == nullptr)
     {
-        if (auto* next = pending.exchange (nullptr, std::memory_order_acq_rel))
+        if (auto* nextChain = pending.exchange (nullptr, std::memory_order_acq_rel))
         {
             fadingOut = active;
-            active = next;
+            active = nextChain;
             chainFade.snap (0.0f);
-            chainFade.setTarget (1.0f);
+            chainFade.setTarget (1.0f, std::max (1, int (sampleRate * double (chainFadeMs.load (std::memory_order_relaxed)) * 0.001)));
         }
     }
     if (chainFade.isRamping())
@@ -380,6 +562,7 @@ void VoiceProcessor::requestChain (std::unique_ptr<EffectChain> chain)
 void VoiceProcessor::collectGarbage()
 {
     for (auto& r : retired) delete r.exchange (nullptr, std::memory_order_acq_rel);
+    for (auto& r : retiredSets) delete r.exchange (nullptr, std::memory_order_acq_rel);
 }
 
 VoiceProcessor::MeterValues VoiceProcessor::fetchMeters() noexcept

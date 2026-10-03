@@ -271,4 +271,11 @@ std::unique_ptr<IVoiceShifter> createPhaseVocoderShifter (int fftOrder, int wind
 {
     return std::make_unique<PhaseVocoderShifter> (fftOrder, windowLength);
 }
+
+std::unique_ptr<IVoiceShifter> createConverterShifter (int quality)
+{
+    if (quality <= 0) return createPhaseVocoderShifter (11, 1024);
+    if (quality >= 2) return createPhaseVocoderShifter (12, 2048);
+    return createPhaseVocoderShifter();
+}
 } // namespace koe

@@ -17,11 +17,13 @@ juce::Colour levelColour (NoticeLevel l)
     return P().textSub;
 }
 
-void runNoticeAction (Navigator& nav, const juce::String& id)
+void runNoticeAction (AppController& c, Navigator& nav, const juce::String& id)
 {
     if (id == "openSettings.devices") nav.showSettings (Navigator::SettingsSection::devices);
     else if (id == "openSettings.advanced") nav.showSettings (Navigator::SettingsSection::advanced);
     else if (id == "openSetup") nav.showSetupWizard();
+    else if (id == "update.apply") c.applyUpdateNow();
+    else if (id == "update.openReleases") juce::URL (c.getUpdateState().releaseUrl).launchInDefaultBrowser();
 }
 } // namespace
 
@@ -158,7 +160,7 @@ NoticeRow::NoticeRow (AppController& ctl, Navigator& n, const Notice& no) : noti
     {
         action = std::make_unique<PillButton> (notice.actionLabel.isNotEmpty() ? notice.actionLabel : ja ("開く"), PillButton::Style::outline);
         action->setFontSize (Theme::fontXS);
-        action->onClick = [this] { runNoticeAction (nav, notice.actionId); };
+        action->onClick = [this] { runNoticeAction (c, nav, notice.actionId); };
         addAndMakeVisible (*action);
     }
     if (notice.dismissible)

@@ -171,11 +171,13 @@ std::vector<EffectInfo> buildInfos()
                      { "mix", "ミックス", 0, 1, 0.3f, "" } } });
 
     // ---- Phase 5 ----
-    v.push_back ({ "freeze", "フリーズ", C::special, W::medium, 5, "直前の音を伸ばし続ける（ホットキーで切替。起動時は OFF）",
+    // weights of freeze / granular / whisper (light) and vocoder (medium) follow the measured CPU, not koeloom_effects.md §4
+    // (owner decision 2026-10-03, 引き継ぎメモ §4)
+    v.push_back ({ "freeze", "フリーズ", C::special, W::light, 5, "直前の音を伸ばし続ける（ホットキーで切替。起動時は OFF）",
                    { { "grainMs", "つなぎの長さ", 20, 500, 120, "ms" },
                      { "mix", "ミックス", 0, 1, 1, "" } } });
 
-    v.push_back ({ "granular", "グラニュラー", C::special, W::heavy, 5, "声を細かい粒に分けて再構成する",
+    v.push_back ({ "granular", "グラニュラー", C::special, W::light, 5, "声を細かい粒に分けて再構成する",
                    { { "grainMs", "粒の長さ", 10, 200, 60, "ms" },
                      { "density", "密度", 1, 40, 12, "粒/秒" },
                      { "spray", "ばらつき", 0, 1, 0.3f, "" },
@@ -193,7 +195,7 @@ std::vector<EffectInfo> buildInfos()
                      { "retuneMs", "補正の速さ（0 で瞬時）", 0, 400, 50, "ms" },
                      { "strength", "補正の強さ", 0, 1, 1, "" } } });
 
-    v.push_back ({ "vocoder", "ボコーダー", C::pitchVocoder, W::heavy, 5, "声の特徴を別の音（キャリア）にかぶせて、しゃべらせる",
+    v.push_back ({ "vocoder", "ボコーダー", C::pitchVocoder, W::medium, 5, "声の特徴を別の音（キャリア）にかぶせて、しゃべらせる",
                    { { "character", "キャラクター", 0, 2, 1, "", { { "vintage", "ヴィンテージ" }, { "modern", "モダン" }, { "talkbox", "トークボックス" } } },
                      { "bands", "バンド数", 8, 32, 16, "", {}, true },
                      { "carrier", "キャリアの波形", 0, 2, 0, "", { { "saw", "のこぎり波" }, { "square", "矩形波" }, { "noise", "ノイズ" } } },
@@ -205,7 +207,7 @@ std::vector<EffectInfo> buildInfos()
                      { "dryDb", "元の声の音量", -60, 0, -60, "dB" },
                      { "mix", "ミックス", 0, 1, 1, "" } } });
 
-    v.push_back ({ "whisper", "ささやき", C::pitchVocoder, W::medium, 5, "声の特徴をノイズにかぶせ、息のような声にする",
+    v.push_back ({ "whisper", "ささやき", C::pitchVocoder, W::light, 5, "声の特徴をノイズにかぶせ、息のような声にする",
                    { { "bands", "バンド数", 12, 32, 20, "", {}, true },
                      { "brightness", "明るさ", -1, 1, 0, "" },
                      { "mix", "ミックス", 0, 1, 1, "" } } });

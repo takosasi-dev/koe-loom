@@ -95,6 +95,7 @@ public:
         navigationAndOverlays();
         tour();
         theme();
+        screenSettings();
         animationsOff() = wasOff;
     }
 
@@ -621,6 +622,20 @@ private:
         expect (t->currentStep() >= 4, "resume starts at the saved step");
         t->skip();
         expectEquals (c->getSettings().tourStep, 7);
+
+        // without banners, at the default size, no step is skipped (the hotkey card is taller than the window:
+        // the tour points at its hint line, E-32)
+        dynamic_cast<NoticeBar*> (findById (&mc, "main.notices"))->setNotices ({});
+        c->updateSettings ([] (Settings& s) { s.tourStep = -1; });
+        mc.startTour (false);
+        t = dynamic_cast<GuideTour*> (findById (&mc, "main.tour"));
+        int visited = 0;
+        for (int g = 0; t->isVisible() && g < 20; ++g, t->next())
+        {
+            expectEquals (t->currentStep(), visited, "every step in order");
+            ++visited;
+        }
+        expectEquals (visited, 7);
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -639,6 +654,55 @@ private:
         c->updateSettings ([] (Settings& s) { s.darkTheme = true; });
         c->dispatchPendingMessages();
         expect (Theme::isDark());
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    void screenSettings()
+    {
+        beginTest ("S-03 外観 detailed settings reach the screen: 拡大率 (min window size), animations, meter, knobs (INTERFACES.md 7.3)");
+        auto c = makeController (kSixFavourites);
+        {
+            MainComponent mc (*c);
+            const Theme::Prefs defaults;
+            expectEquals (juce::Desktop::getInstance().getGlobalScaleFactor(), 1.0f, "default 100 %");
+            expect (minimumWindowSize (c->getSettings()) == juce::Point<int> (Theme::minWidth, Theme::minHeight));
+            expectEquals (Theme::prefs().meterFps, 30);
+            expectEquals (Theme::prefs().peakHoldMs, 1500.0f, "the old 45 frames at 30 fps");
+            expectEquals (Theme::prefs().animations, defaults.animations);
+
+            c->updateSettings ([] (Settings& s)
+            {
+                s.uiScalePercent = 125;
+                s.animations = 2;
+                s.meterFps = 60;
+                s.knobSensitivity = 2;
+                s.knobWheel = false;
+            });
+            c->dispatchPendingMessages();
+            expectEquals (juce::Desktop::getInstance().getGlobalScaleFactor(), 1.25f, "拡大率 125 %");
+            expect (minimumWindowSize (c->getSettings()) == juce::Point<int> (1000, 700), "the smallest window grows with the scale");
+            expect (! Theme::animationsEnabled(), "画面の動き オフ");
+            expectEquals (Theme::prefs().meterFps, 60);
+            expectEquals (Theme::prefs().knobSensitivity, 2);
+            expect (! Theme::prefs().knobWheel);
+            c->updateSettings ([] (Settings& s) { s.animations = 1; });
+            c->dispatchPendingMessages();
+            expect (Theme::animationsEnabled(), "画面の動き オン");
+
+            c->updateSettings ([] (Settings& s)
+            {
+                const Settings d;
+                s.uiScalePercent = d.uiScalePercent;
+                s.animations = d.animations;
+                s.meterFps = d.meterFps;
+                s.knobSensitivity = d.knobSensitivity;
+                s.knobWheel = d.knobWheel;
+            });
+            c->dispatchPendingMessages();
+            expectEquals (juce::Desktop::getInstance().getGlobalScaleFactor(), 1.0f);
+            expectEquals (Theme::prefs().meterFps, 30);
+        }
+        juce::Desktop::getInstance().setGlobalScaleFactor (1.0f);
     }
 };
 

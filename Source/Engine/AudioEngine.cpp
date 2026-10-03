@@ -82,11 +82,19 @@ AudioEngine::DeviceCaps AudioEngine::getCaps (const juce::String& input, const j
     return caps;
 }
 
-juce::String AudioEngine::open (const juce::String& input, const juce::String& output, double sampleRate, int bufferSize)
+juce::String AudioEngine::open (const juce::String& input, const juce::String& output, double sampleRate, int bufferSize,
+                                bool exclusive)
 {
     close();
-    if (type == nullptr) return juce::String::fromUTF8 ("Windows のオーディオ (WASAPI) を使えません");
-    std::unique_ptr<juce::AudioIODevice> d (type->createDevice (output, input));
+    if (exclusive)
+    {
+        if (exclusiveType == nullptr)
+            exclusiveType.reset (juce::AudioIODeviceType::createAudioIODeviceType_WASAPI (juce::WASAPIDeviceMode::exclusive));
+        if (exclusiveType != nullptr) exclusiveType->scanForDevices(); // the list may have changed since the last open
+    }
+    auto* t = exclusive ? exclusiveType.get() : type.get();
+    if (t == nullptr) return juce::String::fromUTF8 ("Windows のオーディオ (WASAPI) を使えません");
+    std::unique_ptr<juce::AudioIODevice> d (t->createDevice (output, input));
     if (d == nullptr) return juce::String::fromUTF8 ("デバイスが見つかりません");
 
     juce::BigInteger inCh, outCh;
@@ -114,6 +122,7 @@ juce::String AudioEngine::open (const juce::String& input, const juce::String& o
     watchdog.reset();
 
     device = std::move (d);
+    openedExclusive = exclusive;
     running.store (true);
     device->start (this);
     return {};
@@ -132,6 +141,29 @@ void AudioEngine::close()
     running.store (false);
 }
 
+int AudioEngine::mixInput (const float* const* in, int numIn, int pos, int n, int mode, float* mono) noexcept
+{
+    // A-12: mono input is the average of the open channels (mode 0, and 3); 1 / 2 take one side
+    int first = 0, last = numIn;
+    if (mode == 1) last = std::min (numIn, 1);
+    else if (mode == 2)
+    {
+        first = numIn > 1 && in[1] != nullptr ? 1 : 0;
+        last = std::min (numIn, first + 1);
+    }
+    int used = 0;
+    std::fill (mono, mono + n, 0.0f);
+    for (int c = first; c < last; ++c)
+        if (in[c] != nullptr)
+        {
+            ++used;
+            for (int i = 0; i < n; ++i) mono[i] += in[c][pos + i];
+        }
+    if (used > 1)
+        for (int i = 0; i < n; ++i) mono[i] /= float (used);
+    return used;
+}
+
 int AudioEngine::getXRunCount() const noexcept
 {
     const int dev = device != nullptr ? device->getXRunCount() : 0;
@@ -147,18 +179,8 @@ void AudioEngine::audioDeviceIOCallbackWithContext (const float* const* in, int 
     for (int pos = 0; pos < numSamples;)
     {
         const int n = std::min (numSamples - pos, int (mono.size()));
-        // mono input: average of the channels (A-12)
-        int used = 0;
-        std::fill (mono.begin(), mono.begin() + n, 0.0f);
-        for (int c = 0; c < numIn; ++c)
-            if (in[c] != nullptr)
-            {
-                ++used;
-                for (int i = 0; i < n; ++i) mono[size_t (i)] += in[c][pos + i];
-            }
+        const int used = mixInput (in, numIn, pos, n, inputChannel.load (std::memory_order_relaxed), mono.data());
         bool allZero = true;
-        if (used > 1)
-            for (int i = 0; i < n; ++i) mono[size_t (i)] /= float (used);
         for (int i = 0; i < n && allZero; ++i) allZero = mono[size_t (i)] == 0.0f;
         if (allZero && used > 0) silentSamples.fetch_add (n, std::memory_order_relaxed);
         else silentSamples.store (0, std::memory_order_relaxed);

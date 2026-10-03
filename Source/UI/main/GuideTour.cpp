@@ -62,7 +62,7 @@ const std::vector<GuideTour::Step>& GuideTour::steps()
           "エフェクトは左から右へ順に処理します。追加・並べ替え・ON/OFF と、重さ（軽・中・重）の表示もここ。" },
         { { "settings.outputGain" }, Page::settings, Section::environment, { "tour.outputMeter" }, "出力の音量",
           "出力の音量は、入力と同じくらいが基準です。調整は設定の「出力ゲイン」で行います。" },
-        { { "settings.hotkeys" }, Page::settings, Section::hotkeys, {}, "ホットキー",
+        { { "settings.hotkeys.hint" }, Page::settings, Section::hotkeys, {}, "ホットキー",
           "ゲーム中でも、キーで切り替えられます。最初はどのキーも割り当てていません。" },
         { { "tour.status" }, Page::voice, Section::devices, {}, "負荷と自動停止",
           "CPU と遅延はここに出ます。負荷が高いと、重ねる声や重いエフェクトが自動停止します。" },
@@ -132,7 +132,9 @@ public:
         auto body = r.removeFromTop (r.getHeight() - Theme::buttonH - Theme::space3 - Theme::space1 - Theme::space2);
         g.setColour (p.text);
         g.setFont (Theme::ui (Theme::fontS));
-        g.drawFittedText (ja (steps()[size_t (index)].text), body, juce::Justification::topLeft, 3, 1.0f);
+        auto text = ja (steps()[size_t (index)].text);
+        if (tour.c.getSettings().layoutStyle == 2) text = text.replace (ja ("左から右へ"), ja ("上から下へ")); // 案 C's rack runs downwards
+        g.drawFittedText (text, body, juce::Justification::topLeft, 3, 1.0f);
         // progress dots: the current one is long
         float x = float (dotsArea.getX());
         const float y = float (dotsArea.getCentreY()) - 4.0f;
