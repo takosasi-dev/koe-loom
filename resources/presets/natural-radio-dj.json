@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "id": "natural-radio-dj",
+  "name": "ラジオDJ",
+  "shifter": {
+    "pitchSt": -1,
+    "formantSt": -0.5
+  },
+  "chain": [
+    {
+      "type": "compressor",
+      "enabled": true,
+      "params": {
+        "thresholdDb": -28,
+        "ratio": 6,
+        "attackMs": 5,
+        "releaseMs": 200,
+        "makeupDb": 7
+      }
+    },
+    {
+      "type": "eq",
+      "enabled": true,
+      "params": {
+        "hpfHz": 80,
+        "lowDb": 4,
+        "highDb": 2
+      }
+    }
+  ],
+  "outputTrimDb": 3
+}

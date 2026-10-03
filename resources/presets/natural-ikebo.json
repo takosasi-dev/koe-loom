@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "id": "natural-ikebo",
+  "name": "イケボ",
+  "shifter": {
+    "pitchSt": -2,
+    "formantSt": -1.5
+  },
+  "chain": [
+    {
+      "type": "compressor",
+      "enabled": true,
+      "params": {
+        "thresholdDb": -26,
+        "ratio": 4,
+        "attackMs": 10,
+        "releaseMs": 150,
+        "makeupDb": 5
+      }
+    },
+    {
+      "type": "eq",
+      "enabled": true,
+      "params": {
+        "lowDb": 3,
+        "midDb": 2,
+        "midHz": 2500
+      }
+    },
+    {
+      "type": "reverb",
+      "enabled": true,
+      "params": {
+        "room": 0.2,
+        "damp": 0.5,
+        "mix": 0.06
+      }
+    }
+  ],
+  "outputTrimDb": 1.5
+}

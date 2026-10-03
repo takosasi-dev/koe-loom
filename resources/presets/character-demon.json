@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "id": "character-demon",
+  "name": "悪魔",
+  "shifter": {
+    "pitchSt": -7,
+    "formantSt": -3
+  },
+  "chain": [
+    {
+      "type": "distortion",
+      "enabled": true,
+      "params": {
+        "driveDb": 12,
+        "toneHz": 5000,
+        "mix": 0.25
+      }
+    },
+    {
+      "type": "echo",
+      "enabled": true,
+      "params": {
+        "timeMs": 120,
+        "feedback": 0.25,
+        "mix": 0.15
+      }
+    },
+    {
+      "type": "reverb",
+      "enabled": true,
+      "params": {
+        "room": 0.5,
+        "damp": 0.4,
+        "mix": 0.2
+      }
+    }
+  ],
+  "outputTrimDb": 0
+}

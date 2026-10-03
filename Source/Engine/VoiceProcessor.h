@@ -1,0 +1,193 @@
+#pragma once
+
+#include "Core/Constants.h"
+#include "Dsp/Building.h"
+#include "Dsp/IVoiceShifter.h"
+#include "Dsp/Limiter.h"
+#include "Dsp/NoiseGate.h"
+#include "Dsp/NoiseSuppressor.h"
+#include "Engine/EffectChain.h"
+
+#include <array>
+#include <atomic>
+#include <functional>
+#include <memory>
+#include <vector>
+
+namespace koe
+{
+/** Extra audio mixed after the voice (soundboard, test tone). Audio thread; add into the buffers. */
+class IAuxSource
+{
+public:
+    virtual ~IAuxSource() = default;
+    /** Add this block's samples into toOutput (virtual mic) and toMonitor (monitor only mix). */
+    virtual void render (float* toOutput, float* toMonitor, int numSamples) = 0;
+    /** Gain to apply to the voice while this source plays (ducking, F-06-7). 1 = none. */
+    virtual float voiceDuckGain() const { return 1.0f; }
+};
+
+/** Receives the monitor mix once per block (audio thread). */
+class IMonitorSink
+{
+public:
+    virtual ~IMonitorSink() = default;
+    virtual void push (const float* samples, int numSamples) = 0;
+};
+
+/** Pitch provider for scale-locked layers (Phase 5, F-02-11). Audio thread. */
+class IScaleLayerPitch
+{
+public:
+    virtual ~IScaleLayerPitch() = default;
+    /** Analyse the voice input block (before the shifters). */
+    virtual void analyse (const float* voice, int numSamples) = 0;
+    /** Semitone shift for a layer, or NaN when no pitch is detected (layer fades to silence, E-28). */
+    virtual float layerSemitones (int key, bool minor, int degree) const = 0;
+};
+
+/**
+    The whole signal path of spec §5.2, independent of any audio device so it can be rendered offline
+    (spec §9.4). All setters are thread-safe (atomics) and take effect smoothly; process() is the only
+    audio-thread entry point. Mono in, stereo (identical L/R, no -3 dB, F-12-2) out.
+*/
+class VoiceProcessor
+{
+public:
+    VoiceProcessor();
+    ~VoiceProcessor();
+
+    /** Shifter implementation for the main voice and the layers (default: Signalsmith). Call before prepare(). */
+    void setShifterFactory (std::function<std::unique_ptr<IVoiceShifter>()> factory);
+
+    /** Allocates everything. Not real-time safe. Also starts the 100 ms fade-in (F-09-5). */
+    void prepare (double sampleRate, int maxBlockSize);
+    double getSampleRate() const noexcept { return sampleRate; }
+    /** Chains handed to requestChain() must be created with this block size. */
+    int getMaxBlockSize() const noexcept { return maxBlock; }
+
+    /** Audio thread. Any numSamples (internally split to maxBlockSize). outR may be nullptr. */
+    void process (const float* in, float* outL, float* outR, int numSamples);
+
+    // ---- environment (F-03, F-12) ----
+    void setInputGainDb (float db) noexcept { inputGainDb.store (kInputGainDb.clamp (db)); }
+    void setNoiseSuppression (bool on, float mix) noexcept { noiseOn.store (on); noiseMix.store (kNoiseMix.clamp (mix)); }
+    void setGate (bool on, float thresholdDb, float attackMs, float holdMs, float releaseMs) noexcept;
+    void setOutputGainDb (float db) noexcept { outputGainDb.store (kOutputGainDb.clamp (db)); }
+
+    // ---- voice (F-02, F-08-8) ----
+    void setVoiceChangerOn (bool on) noexcept { voiceOn.store (on); }
+    void setMicMute (bool on) noexcept { micMute.store (on); }
+    /** hasShifter false = 変換 OFF (R-P3): the main voice is the delayed dry signal regardless of pitch/formant. */
+    void setShifter (bool hasShifter, float pitchSt, float formantSt) noexcept;
+    void setTrimDb (float db) noexcept { trimDb.store (kTrimDb.clamp (db)); }
+
+    struct LayerParams
+    {
+        bool active = false;
+        bool scale = false;  // scale mode (Phase 5)
+        float pitchSt = 0.0f, formantSt = 0.0f, levelDb = -6.0f;
+        int key = 0, degree = 2;
+        bool minor = false;
+    };
+    void setLayer (int index, const LayerParams& p) noexcept;
+    /** Watchdog stop (F-02-8): stays stopped until clearLayerAutoStop(). */
+    void autoStopLayers() noexcept;
+    bool areLayersAutoStopped() const noexcept { return layersAutoStopped.load(); }
+    /** Audio thread (watchdog): is any layer converter currently processing? */
+    bool anyLayerRunning() const noexcept { for (bool r : layerRunning) if (r) return true; return false; }
+    void clearLayerAutoStop() noexcept { layersAutoStopped.store (false); }
+    void setScaleLayerPitch (IScaleLayerPitch* provider) noexcept { scalePitch.store (provider); }
+
+    // ---- chain (F-04-6) ----
+    /** Message thread. The new chain fades in over 30 ms; a still-pending previous request is discarded (E-20). */
+    void requestChain (std::unique_ptr<EffectChain> chain);
+    /** Message thread: delete chains the audio thread has finished with. Call from a timer. */
+    void collectGarbage();
+    /** The most recently requested chain (message thread view). Valid until the next requestChain(). */
+    EffectChain* getRequestedChain() const noexcept { return requested; }
+    /** The chain the audio thread is currently running (for the watchdog, audio thread). */
+    EffectChain* getActiveChainAudio() const noexcept { return active; }
+
+    // ---- aux / monitor ----
+    void setAuxSource (IAuxSource* src) noexcept { aux.store (src); }
+    void setMonitorSink (IMonitorSink* sink) noexcept { monitor.store (sink); }
+
+    // ---- state for the UI ----
+    struct MeterValues { float inputPeak = 0, outputPeak = 0; bool inputClip = false, outputClip = false; };
+    /** Peak since the last call (linear), clip flags since the last call. */
+    MeterValues fetchMeters() noexcept;
+    bool isGateOpen() const noexcept { return gateOn.load() ? gate.isOpen() : true; }
+    bool fetchLimiterActive() noexcept { return limiter.fetchAndClearActive(); }
+    /** Algorithm latency (samples): limiter + noise suppression (if on) + shifter and chain (if voice on). */
+    int getLatencySamples() const noexcept;
+    int getShifterLatencySamples() const noexcept { return shifterLatency; }
+    long long getNonFiniteInputCount() const noexcept { return nanInputs.load(); }
+    /** Restart the 100 ms fade-in (device change, F-09-5). */
+    void triggerFadeIn() noexcept { fadeInRequest.store (true); }
+
+    // ---- tests ----
+    void setTestBusyMicros (int us) noexcept { testBusyMicros.store (us); }
+
+private:
+    void processBlock (const float* in, float* outL, float* outR, int n);
+    void processVoicePath (float* x, int n);
+
+    std::function<std::unique_ptr<IVoiceShifter>()> shifterFactory;
+    double sampleRate = kSampleRate;
+    int maxBlock = kMaxBlockSize;
+
+    // ---- control atomics ----
+    std::atomic<float> inputGainDb { 0.0f }, noiseMix { 1.0f }, outputGainDb { 0.0f }, trimDb { 0.0f };
+    std::atomic<bool> noiseOn { false }, gateOn { false }, micMute { false }, voiceOn { true };
+    std::atomic<bool> hasShifter { false };
+    std::atomic<float> pitchSt { 0.0f }, formantSt { 0.0f };
+    struct LayerAtomics
+    {
+        std::atomic<bool> active { false }, scale { false }, minor { false };
+        std::atomic<float> pitchSt { 0.0f }, formantSt { 0.0f }, levelDb { -6.0f };
+        std::atomic<int> key { 0 }, degree { 2 };
+    };
+    std::array<LayerAtomics, kMaxLayers> layerCtl;
+    std::atomic<bool> layersAutoStopped { false };
+    std::atomic<IScaleLayerPitch*> scalePitch { nullptr };
+    std::atomic<IAuxSource*> aux { nullptr };
+    std::atomic<IMonitorSink*> monitor { nullptr };
+    std::atomic<bool> fadeInRequest { false };
+    std::atomic<int> testBusyMicros { 0 };
+
+    // ---- DSP ----
+    NoiseSuppressor ns;
+    NoiseGate gate;
+    Limiter limiter;
+    std::unique_ptr<IVoiceShifter> mainShifter;
+    std::array<std::unique_ptr<IVoiceShifter>, kMaxLayers> layerShifters;
+    dsp::DelayLine dryDelay;
+    int shifterLatency = 0;
+
+    dsp::Ramp inGain, outGain, trimGain, muteGain, voiceMix, nsMix, startFade, mainShiftMix, duckGain;
+    std::array<dsp::Ramp, kMaxLayers> layerGain;
+    bool mainRunning = false;
+    int mainWarmLeft = 0;
+    std::array<bool, kMaxLayers> layerRunning {};
+    std::array<int, kMaxLayers> layerWarmLeft {};
+    int layerCutSteps = 1;
+    bool voicePathRunning = false;
+
+    // ---- chain swap ----
+    EffectChain* active = nullptr;       // audio thread owns
+    EffectChain* fadingOut = nullptr;    // audio thread owns
+    EffectChain* requested = nullptr;    // message thread view
+    std::atomic<EffectChain*> pending { nullptr };
+    std::array<std::atomic<EffectChain*>, 8> retired {};
+    dsp::Ramp chainFade;
+
+    // ---- buffers (prepared) ----
+    std::vector<float> bufIn, bufNs, bufVoice, bufMain, bufShift, bufLayer, bufChainOld, bufMon, bufAuxOut;
+
+    // ---- meters ----
+    std::atomic<float> inPeak { 0.0f }, outPeak { 0.0f };
+    std::atomic<bool> inClip { false }, outClip { false };
+    std::atomic<long long> nanInputs { 0 };
+};
+} // namespace koe

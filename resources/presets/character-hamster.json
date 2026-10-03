@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "character-hamster",
+  "name": "ハムスター",
+  "shifter": {
+    "pitchSt": 12,
+    "formantSt": 6
+  },
+  "chain": [
+    {
+      "type": "eq",
+      "enabled": true,
+      "params": {
+        "hpfHz": 200
+      }
+    }
+  ],
+  "outputTrimDb": 0
+}

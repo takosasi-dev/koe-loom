@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "id": "character-fairy",
+  "name": "妖精",
+  "shifter": {
+    "pitchSt": 7,
+    "formantSt": 4
+  },
+  "chain": [
+    {
+      "type": "eq",
+      "enabled": true,
+      "params": {
+        "hpfHz": 200,
+        "highDb": 3
+      }
+    },
+    {
+      "type": "modulation",
+      "enabled": true,
+      "params": {
+        "mode": "chorus",
+        "rateHz": 1.2,
+        "depth": 0.4,
+        "mix": 0.4
+      }
+    },
+    {
+      "type": "reverb",
+      "enabled": true,
+      "params": {
+        "room": 0.5,
+        "damp": 0.3,
+        "mix": 0.25
+      }
+    }
+  ],
+  "outputTrimDb": 3.5
+}

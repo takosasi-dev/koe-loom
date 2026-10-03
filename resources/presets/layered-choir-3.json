@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "id": "layered-choir-3",
+  "name": "合唱（3声）",
+  "shifter": {
+    "pitchSt": 0,
+    "formantSt": 0
+  },
+  "layers": [
+    {
+      "mode": "fixed",
+      "pitchSt": 4,
+      "formantSt": 2.5,
+      "levelDb": -6
+    },
+    {
+      "mode": "fixed",
+      "pitchSt": -5,
+      "formantSt": -3,
+      "levelDb": -6
+    }
+  ],
+  "chain": [
+    {
+      "type": "reverb",
+      "enabled": true,
+      "params": {
+        "room": 0.6,
+        "damp": 0.4,
+        "mix": 0.3
+      }
+    }
+  ],
+  "outputTrimDb": -2
+}

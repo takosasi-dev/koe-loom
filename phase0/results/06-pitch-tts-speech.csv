@@ -1,0 +1,5 @@
+method,signal,frames,voiced_ratio,median_abs_frame_change_cents,truth_median_abs_cents,truth_p99_abs_cents,truth_within_50c_ratio
+YIN,synthVoice (合成音声で代用),3736,0.8252,1.171,3.133,32.640,0.9968
+YIN,tts-speech.wav,3736,0.6777,4.656,,,
+MPM,synthVoice (合成音声で代用),3736,0.9259,1.177,2.139,61.263,0.9850
+MPM,tts-speech.wav,3736,0.7570,4.175,,,

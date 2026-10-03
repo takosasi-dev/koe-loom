@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "id": "device-am-radio",
+  "name": "ラジオ（AM）",
+  "chain": [
+    {
+      "type": "compressor",
+      "enabled": true,
+      "params": {
+        "thresholdDb": -22,
+        "ratio": 5,
+        "attackMs": 8,
+        "releaseMs": 150,
+        "makeupDb": 5
+      }
+    },
+    {
+      "type": "eq",
+      "enabled": true,
+      "params": {
+        "hpfHz": 300,
+        "lpfHz": 4000
+      }
+    },
+    {
+      "type": "distortion",
+      "enabled": true,
+      "params": {
+        "driveDb": 8,
+        "toneHz": 4000,
+        "mix": 0.25
+      }
+    }
+  ],
+  "outputTrimDb": 3
+}

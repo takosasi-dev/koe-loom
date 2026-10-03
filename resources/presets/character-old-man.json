@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "id": "character-old-man",
+  "name": "おじいさん",
+  "shifter": {
+    "pitchSt": -2,
+    "formantSt": -1.5
+  },
+  "chain": [
+    {
+      "type": "eq",
+      "enabled": true,
+      "params": {
+        "lowDb": 1,
+        "lpfHz": 6000
+      }
+    },
+    {
+      "type": "modulation",
+      "enabled": true,
+      "params": {
+        "mode": "vibrato",
+        "rateHz": 5,
+        "depth": 0.15,
+        "mix": 1
+      }
+    },
+    {
+      "type": "tremolo",
+      "enabled": true,
+      "params": {
+        "rateHz": 6,
+        "depth": 0.1
+      }
+    }
+  ],
+  "outputTrimDb": 0
+}

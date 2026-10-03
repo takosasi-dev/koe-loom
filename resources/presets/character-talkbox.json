@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "id": "character-talkbox",
+  "name": "トークボックス風",
+  "chain": [
+    {
+      "type": "vocoder",
+      "enabled": true,
+      "params": {
+        "character": "talkbox",
+        "bands": 16,
+        "carrier": "saw",
+        "carrierPitch": "fixed",
+        "noteSt": 52,
+        "chord": "major_chord",
+        "attackMs": 6,
+        "releaseMs": 90,
+        "dryDb": -18,
+        "mix": 0.9
+      }
+    }
+  ],
+  "outputTrimDb": 0
+}

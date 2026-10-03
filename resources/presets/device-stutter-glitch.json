@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "device-stutter-glitch",
+  "name": "スタッター（グリッチ）",
+  "chain": [
+    {
+      "type": "stutter",
+      "enabled": true,
+      "params": {
+        "bpm": 120,
+        "division": "1/16",
+        "repeatCount": 4,
+        "chance": 0.35,
+        "mix": 1
+      }
+    }
+  ],
+  "outputTrimDb": 0
+}

@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "id": "character-masked-villain",
+  "name": "仮面の悪役",
+  "shifter": {
+    "pitchSt": -4,
+    "formantSt": -2
+  },
+  "chain": [
+    {
+      "type": "compressor",
+      "enabled": true,
+      "params": {
+        "thresholdDb": -24,
+        "ratio": 4,
+        "attackMs": 10,
+        "releaseMs": 150,
+        "makeupDb": 4
+      }
+    },
+    {
+      "type": "eq",
+      "enabled": true,
+      "params": {
+        "hpfHz": 200,
+        "lowDb": 2,
+        "lpfHz": 5000
+      }
+    },
+    {
+      "type": "ringmod",
+      "enabled": true,
+      "params": {
+        "freqHz": 80,
+        "mix": 0.12
+      }
+    },
+    {
+      "type": "reverb",
+      "enabled": true,
+      "params": {
+        "room": 0.2,
+        "damp": 0.6,
+        "mix": 0.1
+      }
+    }
+  ],
+  "outputTrimDb": 4
+}

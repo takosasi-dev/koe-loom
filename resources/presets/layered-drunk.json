@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "id": "layered-drunk",
+  "name": "酔っぱらい",
+  "shifter": {
+    "pitchSt": -1,
+    "formantSt": -0.5
+  },
+  "chain": [
+    {
+      "type": "modulation",
+      "enabled": true,
+      "params": {
+        "mode": "vibrato",
+        "rateHz": 0.6,
+        "depth": 0.5,
+        "mix": 1
+      }
+    },
+    {
+      "type": "tremolo",
+      "enabled": true,
+      "params": {
+        "rateHz": 0.5,
+        "depth": 0.2
+      }
+    },
+    {
+      "type": "echo",
+      "enabled": true,
+      "params": {
+        "timeMs": 140,
+        "feedback": 0.2,
+        "mix": 0.15
+      }
+    }
+  ],
+  "outputTrimDb": 0
+}

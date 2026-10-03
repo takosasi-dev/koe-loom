@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "id": "character-alien",
+  "name": "エイリアン",
+  "shifter": {
+    "pitchSt": 3,
+    "formantSt": 3
+  },
+  "chain": [
+    {
+      "type": "ringmod",
+      "enabled": true,
+      "params": {
+        "freqHz": 150,
+        "mix": 0.25
+      }
+    },
+    {
+      "type": "modulation",
+      "enabled": true,
+      "params": {
+        "mode": "flanger",
+        "rateHz": 0.4,
+        "depth": 0.7,
+        "feedback": 0.6,
+        "mix": 0.6
+      }
+    },
+    {
+      "type": "echo",
+      "enabled": true,
+      "params": {
+        "timeMs": 80,
+        "feedback": 0.3,
+        "mix": 0.2
+      }
+    }
+  ],
+  "outputTrimDb": 6
+}

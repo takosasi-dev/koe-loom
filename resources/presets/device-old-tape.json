@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "id": "device-old-tape",
+  "name": "古いテープ",
+  "chain": [
+    {
+      "type": "eq",
+      "enabled": true,
+      "params": {
+        "lpfHz": 5500
+      }
+    },
+    {
+      "type": "distortion",
+      "enabled": true,
+      "params": {
+        "driveDb": 4,
+        "toneHz": 5000,
+        "mix": 0.15
+      }
+    },
+    {
+      "type": "modulation",
+      "enabled": true,
+      "params": {
+        "mode": "vibrato",
+        "rateHz": 0.8,
+        "depth": 0.35,
+        "mix": 1
+      }
+    }
+  ],
+  "outputTrimDb": 0
+}

@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "character-vocoder-robot",
+  "name": "ボコーダーロボ",
+  "chain": [
+    {
+      "type": "vocoder",
+      "enabled": true,
+      "params": {
+        "character": "modern",
+        "bands": 20,
+        "carrier": "saw",
+        "carrierPitch": "follow",
+        "chord": "single",
+        "attackMs": 8,
+        "releaseMs": 60,
+        "dryDb": -60,
+        "mix": 1
+      }
+    }
+  ],
+  "outputTrimDb": 0
+}

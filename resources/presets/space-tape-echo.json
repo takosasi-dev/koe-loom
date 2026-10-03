@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "space-tape-echo",
+  "name": "テープエコー",
+  "chain": [
+    {
+      "type": "echo",
+      "enabled": true,
+      "params": {
+        "mode": "tape",
+        "timeMs": 380,
+        "feedback": 0.45,
+        "toneHz": 4500,
+        "mix": 0.35
+      }
+    }
+  ],
+  "outputTrimDb": 0
+}

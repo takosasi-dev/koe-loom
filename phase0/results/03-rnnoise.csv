@@ -1,0 +1,74 @@
+item,condition,value,unit
+rnnoise_get_frame_size,,480,samples
+rnnoise_get_size,DenoiseState bytes,32688,bytes
+fifo_prime,block 480, speech only,0,samples
+latency_wave,block 480, speech only,960,samples
+latency_wave_ms,block 480, speech only,20.000,ms
+latency_wave_score,block 480, speech only,0.9756,corr
+latency_env_ms,block 480, speech only,20,ms
+fifo_underruns,block 480, speech only,0,samples
+speech_level_change,speech only, block 480, from 1 s,-0.401,dB
+fifo_prime,block 128, speech only,448,samples
+latency_wave,block 128, speech only,1408,samples
+latency_wave_ms,block 128, speech only,29.333,ms
+latency_wave_score,block 128, speech only,0.9756,corr
+latency_env_ms,block 128, speech only,29,ms
+fifo_underruns,block 128, speech only,0,samples
+fifo_prime,block 256, speech only,448,samples
+latency_wave,block 256, speech only,1408,samples
+latency_wave_ms,block 256, speech only,29.333,ms
+latency_wave_score,block 256, speech only,0.9756,corr
+latency_env_ms,block 256, speech only,29,ms
+fifo_underruns,block 256, speech only,0,samples
+fifo_prime,block 512, speech only,448,samples
+latency_wave,block 512, speech only,1408,samples
+latency_wave_ms,block 512, speech only,29.333,ms
+latency_wave_score,block 512, speech only,0.9756,corr
+latency_env_ms,block 512, speech only,29,ms
+fifo_underruns,block 512, speech only,0,samples
+noise_only_in,white -40 dBFS RMS, 1..10 s,-39.998,dBFS
+noise_only_out,white -40 dBFS RMS, 1..10 s,-96.972,dBFS
+noise_only_suppression,in - out (AC-16 needs >= 10),56.973,dB
+noise_only_out_per_second,second 0,-65.738,dBFS
+noise_only_out_per_second,second 1,-106.232,dBFS
+noise_only_out_per_second,second 2,-106.431,dBFS
+noise_only_out_per_second,second 3,-101.483,dBFS
+noise_only_out_per_second,second 4,-105.350,dBFS
+noise_only_out_per_second,second 5,-102.237,dBFS
+noise_only_out_per_second,second 6,-94.176,dBFS
+noise_only_out_per_second,second 7,-91.094,dBFS
+noise_only_out_per_second,second 8,-97.908,dBFS
+noise_only_out_per_second,second 9,-95.536,dBFS
+mix_latency_check,gated speech, block 480,960,samples
+mix_gap_in,noise during 0.3 s gaps (50 ms guards),-39.999,dBFS
+mix_gap_out,noise during 0.3 s gaps (50 ms guards),-85.405,dBFS
+mix_gap_suppression,gap in - gap out,45.406,dB
+mix_speech_in,speech+noise during speech,-21.816,dBFS
+mix_speech_out,speech+noise during speech,-22.366,dBFS
+mix_speech_change,out - in during speech,-0.550,dB
+clean_speech_change,gated speech without noise, out - in,-0.353,dB
+mix_input_snr,speech segments vs noise,18.114,dB
+frame_us_p50,block 128, 60 s speech+noise,155.600,us
+frame_us_p99,block 128, 60 s speech+noise,325.400,us
+frame_us_max,block 128, 60 s speech+noise,1408.400,us
+frame_count,block 128, 60 s speech+noise,6000,frames
+block_cpu_p50,block 128, 60 s speech+noise,0.038,% of buffer
+block_cpu_p99,block 128, 60 s speech+noise,8.104,% of buffer
+block_cpu_max,block 128, 60 s speech+noise,52.942,% of buffer
+system_busy,block 128, 60 s speech+noise,62.1,%
+frame_us_p50,block 256, 60 s speech+noise,154.700,us
+frame_us_p99,block 256, 60 s speech+noise,326.500,us
+frame_us_max,block 256, 60 s speech+noise,1532.200,us
+frame_count,block 256, 60 s speech+noise,6000,frames
+block_cpu_p50,block 256, 60 s speech+noise,2.790,% of buffer
+block_cpu_p99,block 256, 60 s speech+noise,4.766,% of buffer
+block_cpu_max,block 256, 60 s speech+noise,28.817,% of buffer
+system_busy,block 256, 60 s speech+noise,61.8,%
+frame_us_p50,block 480, 60 s speech+noise,155.600,us
+frame_us_p99,block 480, 60 s speech+noise,344.300,us
+frame_us_max,block 480, 60 s speech+noise,2337.900,us
+frame_count,block 480, 60 s speech+noise,6000,frames
+block_cpu_p50,block 480, 60 s speech+noise,1.608,% of buffer
+block_cpu_p99,block 480, 60 s speech+noise,3.542,% of buffer
+block_cpu_max,block 480, 60 s speech+noise,23.465,% of buffer
+system_busy,block 480, 60 s speech+noise,65.1,%

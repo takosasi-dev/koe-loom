@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "id": "device-radio-noise",
+  "name": "ラジオ（ノイズ入り）",
+  "chain": [
+    {
+      "type": "compressor",
+      "enabled": true,
+      "params": {
+        "thresholdDb": -22,
+        "ratio": 5,
+        "attackMs": 8,
+        "releaseMs": 150,
+        "makeupDb": 5
+      }
+    },
+    {
+      "type": "voicechar",
+      "enabled": true,
+      "params": {
+        "kind": "radio",
+        "intensity": 0.7,
+        "mix": 1
+      }
+    },
+    {
+      "type": "noise",
+      "enabled": true,
+      "params": {
+        "kind": "static",
+        "levelDb": -38,
+        "toneHz": 5000,
+        "followVoice": 0.3
+      }
+    }
+  ],
+  "outputTrimDb": 0
+}

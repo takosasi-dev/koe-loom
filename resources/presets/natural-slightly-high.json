@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "natural-slightly-high",
+  "name": "少し高め",
+  "shifter": {
+    "pitchSt": 1.5,
+    "formantSt": 1
+  },
+  "chain": [
+    {
+      "type": "compressor",
+      "enabled": true,
+      "params": {
+        "thresholdDb": -24,
+        "ratio": 2.5,
+        "attackMs": 10,
+        "releaseMs": 120,
+        "makeupDb": 3
+      }
+    }
+  ],
+  "outputTrimDb": 1.5
+}

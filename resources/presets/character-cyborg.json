@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "id": "character-cyborg",
+  "name": "サイボーグ",
+  "shifter": {
+    "pitchSt": -2,
+    "formantSt": -1
+  },
+  "chain": [
+    {
+      "type": "bitcrusher",
+      "enabled": true,
+      "params": {
+        "bits": 10,
+        "rateHz": 16000,
+        "mix": 0.4
+      }
+    },
+    {
+      "type": "ringmod",
+      "enabled": true,
+      "params": {
+        "freqHz": 40,
+        "mix": 0.5
+      }
+    },
+    {
+      "type": "reverb",
+      "enabled": true,
+      "params": {
+        "room": 0.15,
+        "damp": 0.5,
+        "mix": 0.08
+      }
+    }
+  ],
+  "outputTrimDb": 4.5
+}

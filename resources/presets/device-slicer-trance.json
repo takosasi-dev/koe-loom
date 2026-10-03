@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "device-slicer-trance",
+  "name": "スライサー（細切れ）",
+  "chain": [
+    {
+      "type": "slicer",
+      "enabled": true,
+      "params": {
+        "bpm": 128,
+        "pattern": 2,
+        "division": "1/16",
+        "depth": 1,
+        "smoothMs": 5
+      }
+    }
+  ],
+  "outputTrimDb": 2
+}

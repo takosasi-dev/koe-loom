@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "id": "character-crowd",
+  "name": "ガヤ（大勢で話す）",
+  "chain": [
+    {
+      "type": "ensemble",
+      "enabled": true,
+      "params": {
+        "voices": 8,
+        "rateHz": 0.9,
+        "depth": 0.6,
+        "mix": 0.7
+      }
+    },
+    {
+      "type": "reverb",
+      "enabled": true,
+      "params": {
+        "type": "hall",
+        "room": 0.6,
+        "damp": 0.5,
+        "preDelayMs": 20,
+        "mix": 0.25
+      }
+    }
+  ],
+  "outputTrimDb": 1.5
+}

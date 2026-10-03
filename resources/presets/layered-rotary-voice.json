@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "id": "layered-rotary-voice",
+  "name": "ロータリー声",
+  "chain": [
+    {
+      "type": "rotary",
+      "enabled": true,
+      "params": {
+        "rateHz": 5,
+        "depth": 0.7,
+        "mix": 0.8
+      }
+    },
+    {
+      "type": "reverb",
+      "enabled": true,
+      "params": {
+        "type": "room",
+        "room": 0.2,
+        "damp": 0.5,
+        "preDelayMs": 0,
+        "mix": 0.1
+      }
+    }
+  ],
+  "outputTrimDb": 0
+}

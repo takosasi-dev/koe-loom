@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "layered-harmony-scale",
+  "name": "ハモり（スケール連動・3度上）",
+  "shifter": {
+    "pitchSt": 0,
+    "formantSt": 0
+  },
+  "layers": [
+    {
+      "mode": "scale",
+      "key": "C",
+      "scale": "major",
+      "degree": 2,
+      "formantSt": 2,
+      "levelDb": -6
+    }
+  ],
+  "outputTrimDb": 0
+}

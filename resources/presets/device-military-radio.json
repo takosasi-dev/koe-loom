@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "id": "device-military-radio",
+  "name": "無線（軍用風）",
+  "chain": [
+    {
+      "type": "compressor",
+      "enabled": true,
+      "params": {
+        "thresholdDb": -24,
+        "ratio": 6,
+        "attackMs": 5,
+        "releaseMs": 120,
+        "makeupDb": 6
+      }
+    },
+    {
+      "type": "eq",
+      "enabled": true,
+      "params": {
+        "hpfHz": 450,
+        "lpfHz": 3000
+      }
+    },
+    {
+      "type": "bitcrusher",
+      "enabled": true,
+      "params": {
+        "bits": 8,
+        "rateHz": 8000,
+        "mix": 0.5
+      }
+    },
+    {
+      "type": "distortion",
+      "enabled": true,
+      "params": {
+        "driveDb": 10,
+        "toneHz": 3000,
+        "mix": 0.3
+      }
+    }
+  ],
+  "outputTrimDb": 6
+}

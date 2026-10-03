@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "character-boy",
+  "name": "少年",
+  "shifter": {
+    "pitchSt": 3,
+    "formantSt": 3
+  },
+  "chain": [
+    {
+      "type": "eq",
+      "enabled": true,
+      "params": {
+        "hpfHz": 120,
+        "highDb": 1
+      }
+    }
+  ],
+  "outputTrimDb": 0
+}

@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "device-wah-voice",
+  "name": "ワウボイス",
+  "chain": [
+    {
+      "type": "autowah",
+      "enabled": true,
+      "params": {
+        "sensitivity": 0.7,
+        "baseHz": 350,
+        "rangeOct": 2.5,
+        "q": 4,
+        "mix": 0.8
+      }
+    }
+  ],
+  "outputTrimDb": 2
+}

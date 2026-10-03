@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "id": "device-broken-speaker",
+  "name": "ボロスピーカー",
+  "chain": [
+    {
+      "type": "eq",
+      "enabled": true,
+      "params": {
+        "hpfHz": 300,
+        "lpfHz": 4500
+      }
+    },
+    {
+      "type": "distortion",
+      "enabled": true,
+      "params": {
+        "driveDb": 28,
+        "toneHz": 3500,
+        "mix": 0.7
+      }
+    }
+  ],
+  "outputTrimDb": 3
+}

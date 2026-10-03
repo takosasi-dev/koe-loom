@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "id": "space-underwater",
+  "name": "水の中",
+  "chain": [
+    {
+      "type": "eq",
+      "enabled": true,
+      "params": {
+        "lpfHz": 1000
+      }
+    },
+    {
+      "type": "modulation",
+      "enabled": true,
+      "params": {
+        "mode": "chorus",
+        "rateHz": 0.6,
+        "depth": 0.8,
+        "mix": 0.6
+      }
+    },
+    {
+      "type": "reverb",
+      "enabled": true,
+      "params": {
+        "room": 0.3,
+        "damp": 0.5,
+        "mix": 0.2
+      }
+    }
+  ],
+  "outputTrimDb": 4
+}

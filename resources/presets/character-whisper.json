@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "id": "character-whisper",
+  "name": "ささやき",
+  "chain": [
+    {
+      "type": "whisper",
+      "enabled": true,
+      "params": {
+        "bands": 24,
+        "brightness": 0.2,
+        "mix": 1
+      }
+    },
+    {
+      "type": "eq",
+      "enabled": true,
+      "params": {
+        "hpfHz": 150
+      }
+    }
+  ],
+  "outputTrimDb": 0
+}

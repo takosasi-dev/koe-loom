@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "id": "layered-phaser-voice",
+  "name": "フェイザー声",
+  "chain": [
+    {
+      "type": "phaser",
+      "enabled": true,
+      "params": {
+        "stages": 6,
+        "rateHz": 0.3,
+        "depth": 0.8,
+        "feedback": 0.5,
+        "mix": 0.6
+      }
+    },
+    {
+      "type": "reverb",
+      "enabled": true,
+      "params": {
+        "type": "plate",
+        "room": 0.4,
+        "damp": 0.5,
+        "preDelayMs": 0,
+        "mix": 0.15
+      }
+    }
+  ],
+  "outputTrimDb": 3
+}

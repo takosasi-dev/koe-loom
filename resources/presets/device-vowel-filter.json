@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "device-vowel-filter",
+  "name": "母音フィルター",
+  "chain": [
+    {
+      "type": "formantfilter",
+      "enabled": true,
+      "params": {
+        "vowel": 1.5,
+        "lfoRateHz": 0.4,
+        "depth": 0.8,
+        "mix": 0.8
+      }
+    }
+  ],
+  "outputTrimDb": 1
+}

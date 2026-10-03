@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "id": "character-helium",
+  "name": "ヘリウム",
+  "shifter": {
+    "pitchSt": 8,
+    "formantSt": 5
+  },
+  "outputTrimDb": 0
+}

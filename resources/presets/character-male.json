@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "id": "character-male",
+  "name": "男声寄り",
+  "shifter": {
+    "pitchSt": -4,
+    "formantSt": -2.5
+  },
+  "chain": [
+    {
+      "type": "compressor",
+      "enabled": true,
+      "params": {
+        "thresholdDb": -24,
+        "ratio": 3,
+        "attackMs": 10,
+        "releaseMs": 120,
+        "makeupDb": 4
+      }
+    },
+    {
+      "type": "eq",
+      "enabled": true,
+      "params": {
+        "lowDb": 3
+      }
+    }
+  ],
+  "outputTrimDb": 0
+}

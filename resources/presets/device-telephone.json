@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "id": "device-telephone",
+  "name": "電話",
+  "chain": [
+    {
+      "type": "compressor",
+      "enabled": true,
+      "params": {
+        "thresholdDb": -24,
+        "ratio": 4,
+        "attackMs": 10,
+        "releaseMs": 120,
+        "makeupDb": 4
+      }
+    },
+    {
+      "type": "eq",
+      "enabled": true,
+      "params": {
+        "hpfHz": 400,
+        "lpfHz": 3200
+      }
+    },
+    {
+      "type": "distortion",
+      "enabled": true,
+      "params": {
+        "driveDb": 6,
+        "toneHz": 3500,
+        "mix": 0.2
+      }
+    }
+  ],
+  "outputTrimDb": 6
+}

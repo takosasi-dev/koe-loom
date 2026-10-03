@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "id": "character-old-woman",
+  "name": "おばあさん",
+  "shifter": {
+    "pitchSt": 1,
+    "formantSt": 0.5
+  },
+  "chain": [
+    {
+      "type": "eq",
+      "enabled": true,
+      "params": {
+        "lpfHz": 6500
+      }
+    },
+    {
+      "type": "modulation",
+      "enabled": true,
+      "params": {
+        "mode": "vibrato",
+        "rateHz": 5.5,
+        "depth": 0.18,
+        "mix": 1
+      }
+    },
+    {
+      "type": "tremolo",
+      "enabled": true,
+      "params": {
+        "rateHz": 6,
+        "depth": 0.1
+      }
+    }
+  ],
+  "outputTrimDb": 0
+}

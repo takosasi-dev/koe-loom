@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "id": "natural-calm",
+  "name": "落ち着いた声",
+  "shifter": {
+    "pitchSt": -2,
+    "formantSt": -1.5
+  },
+  "chain": [
+    {
+      "type": "compressor",
+      "enabled": true,
+      "params": {
+        "thresholdDb": -24,
+        "ratio": 3,
+        "attackMs": 10,
+        "releaseMs": 120,
+        "makeupDb": 4
+      }
+    },
+    {
+      "type": "eq",
+      "enabled": true,
+      "params": {
+        "lowDb": 2,
+        "highDb": -1
+      }
+    }
+  ],
+  "outputTrimDb": 0
+}

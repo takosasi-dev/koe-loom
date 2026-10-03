@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "id": "character-ghost",
+  "name": "幽霊",
+  "shifter": {
+    "pitchSt": 0,
+    "formantSt": 2
+  },
+  "chain": [
+    {
+      "type": "eq",
+      "enabled": true,
+      "params": {
+        "hpfHz": 300,
+        "lpfHz": 8000
+      }
+    },
+    {
+      "type": "modulation",
+      "enabled": true,
+      "params": {
+        "mode": "chorus",
+        "rateHz": 0.3,
+        "depth": 0.6,
+        "mix": 0.5
+      }
+    },
+    {
+      "type": "echo",
+      "enabled": true,
+      "params": {
+        "timeMs": 350,
+        "feedback": 0.5,
+        "mix": 0.35
+      }
+    },
+    {
+      "type": "reverb",
+      "enabled": true,
+      "params": {
+        "room": 0.9,
+        "damp": 0.3,
+        "mix": 0.5
+      }
+    }
+  ],
+  "outputTrimDb": 4.5
+}

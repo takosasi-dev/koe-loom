@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "id": "device-megaphone",
+  "name": "拡声器",
+  "chain": [
+    {
+      "type": "eq",
+      "enabled": true,
+      "params": {
+        "hpfHz": 500,
+        "lpfHz": 4500,
+        "midDb": 4,
+        "midHz": 1500
+      }
+    },
+    {
+      "type": "distortion",
+      "enabled": true,
+      "params": {
+        "driveDb": 14,
+        "toneHz": 4500,
+        "mix": 0.4
+      }
+    },
+    {
+      "type": "echo",
+      "enabled": true,
+      "params": {
+        "timeMs": 90,
+        "feedback": 0.2,
+        "mix": 0.15
+      }
+    },
+    {
+      "type": "reverb",
+      "enabled": true,
+      "params": {
+        "room": 0.2,
+        "damp": 0.6,
+        "mix": 0.1
+      }
+    }
+  ],
+  "outputTrimDb": 5
+}

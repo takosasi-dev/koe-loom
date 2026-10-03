@@ -1,0 +1,23 @@
+# build outputs (builds go to %LOCALAPPDATA%\KoeLoom\build, these are safety nets)
+/build/
+/out/
+/dist/
+*.exe
+*.pdb
+*.obj
+*.ilk
+
+# phase 0: user's own voice and raw recordings stay local
+/phase0/testdata/*
+!/phase0/testdata/README.md
+/phase0/results/raw/
+
+# local scratch
+/.vs/
+/.vscode/
+/.claude/
+__pycache__/
+*.pyc
+test-results.txt
+build-snapshots/
+wtguard.toml

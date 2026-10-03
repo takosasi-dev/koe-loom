@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "id": "space-bath",
+  "name": "お風呂場",
+  "chain": [
+    {
+      "type": "eq",
+      "enabled": true,
+      "params": {
+        "lowDb": 2
+      }
+    },
+    {
+      "type": "reverb",
+      "enabled": true,
+      "params": {
+        "room": 0.35,
+        "damp": 0.1,
+        "mix": 0.45
+      }
+    }
+  ],
+  "outputTrimDb": 0
+}

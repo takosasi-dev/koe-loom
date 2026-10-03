@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "id": "space-reverse-echo",
+  "name": "リバースエコー",
+  "chain": [
+    {
+      "type": "echo",
+      "enabled": true,
+      "params": {
+        "mode": "reverse",
+        "timeMs": 500,
+        "feedback": 0.3,
+        "toneHz": 6000,
+        "mix": 0.45
+      }
+    },
+    {
+      "type": "reverb",
+      "enabled": true,
+      "params": {
+        "type": "plate",
+        "room": 0.3,
+        "damp": 0.5,
+        "preDelayMs": 0,
+        "mix": 0.15
+      }
+    }
+  ],
+  "outputTrimDb": 0
+}

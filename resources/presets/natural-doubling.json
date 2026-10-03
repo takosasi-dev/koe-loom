@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "id": "natural-doubling",
+  "name": "ダブリング（声を厚く）",
+  "shifter": {
+    "pitchSt": 0,
+    "formantSt": 0
+  },
+  "layers": [
+    {
+      "mode": "fixed",
+      "pitchSt": 0.2,
+      "formantSt": 0,
+      "levelDb": -4
+    },
+    {
+      "mode": "fixed",
+      "pitchSt": -0.2,
+      "formantSt": 0,
+      "levelDb": -4
+    }
+  ],
+  "outputTrimDb": -2.5
+}

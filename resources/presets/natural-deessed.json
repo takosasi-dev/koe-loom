@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "id": "natural-deessed",
+  "name": "クリア補正（さ行を抑える）",
+  "chain": [
+    {
+      "type": "compressor",
+      "enabled": true,
+      "params": {
+        "thresholdDb": -24,
+        "ratio": 3,
+        "attackMs": 10,
+        "releaseMs": 120,
+        "makeupDb": 4
+      }
+    },
+    {
+      "type": "deesser",
+      "enabled": true,
+      "params": {
+        "freqHz": 6500,
+        "thresholdDb": -30,
+        "reductionDb": 8
+      }
+    },
+    {
+      "type": "eq",
+      "enabled": true,
+      "params": {
+        "hpfHz": 80,
+        "midDb": 2,
+        "midHz": 3000,
+        "highDb": 1.5
+      }
+    }
+  ],
+  "outputTrimDb": 0
+}

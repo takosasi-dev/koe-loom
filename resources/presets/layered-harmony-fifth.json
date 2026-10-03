@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "layered-harmony-fifth",
+  "name": "ハモり（5度上）",
+  "shifter": {
+    "pitchSt": 0,
+    "formantSt": 0
+  },
+  "layers": [
+    {
+      "mode": "fixed",
+      "pitchSt": 7,
+      "formantSt": 2,
+      "levelDb": -6
+    }
+  ],
+  "outputTrimDb": 0
+}

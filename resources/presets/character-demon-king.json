@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "id": "character-demon-king",
+  "name": "魔王",
+  "shifter": {
+    "pitchSt": -9,
+    "formantSt": -5
+  },
+  "layers": [
+    {
+      "mode": "fixed",
+      "pitchSt": -12,
+      "formantSt": -6,
+      "levelDb": -10
+    }
+  ],
+  "chain": [
+    {
+      "type": "distortion",
+      "enabled": true,
+      "params": {
+        "driveDb": 10,
+        "toneHz": 4500,
+        "mix": 0.2
+      }
+    },
+    {
+      "type": "ringmod",
+      "enabled": true,
+      "params": {
+        "freqHz": 40,
+        "mix": 0.15
+      }
+    },
+    {
+      "type": "echo",
+      "enabled": true,
+      "params": {
+        "timeMs": 250,
+        "feedback": 0.3,
+        "mix": 0.2
+      }
+    },
+    {
+      "type": "reverb",
+      "enabled": true,
+      "params": {
+        "room": 0.8,
+        "damp": 0.4,
+        "mix": 0.3
+      }
+    }
+  ],
+  "outputTrimDb": 0
+}

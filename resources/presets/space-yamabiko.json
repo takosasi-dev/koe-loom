@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "space-yamabiko",
+  "name": "山びこ",
+  "chain": [
+    {
+      "type": "echo",
+      "enabled": true,
+      "params": {
+        "timeMs": 550,
+        "feedback": 0.55,
+        "mix": 0.5
+      }
+    }
+  ],
+  "outputTrimDb": 0
+}

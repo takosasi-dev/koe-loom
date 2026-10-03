@@ -1,0 +1,3 @@
+method,detect_us_p50,detect_us_p99,detect_us_max,calls,cpu128_p50_pct,cpu128_p99_pct,cpu256_p99_pct,cpu480_p99_pct
+YIN,189.500,324.700,541.900,11242,7.106,12.176,6.088,3.247
+MPM,126.600,218.700,528.400,11242,4.748,8.201,4.101,2.187

@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "character-robot",
+  "name": "ロボット",
+  "shifter": {
+    "pitchSt": 0,
+    "formantSt": 0
+  },
+  "chain": [
+    {
+      "type": "eq",
+      "enabled": true,
+      "params": {
+        "hpfHz": 150
+      }
+    },
+    {
+      "type": "ringmod",
+      "enabled": true,
+      "params": {
+        "freqHz": 70,
+        "mix": 0.7
+      }
+    }
+  ],
+  "outputTrimDb": 5.5
+}

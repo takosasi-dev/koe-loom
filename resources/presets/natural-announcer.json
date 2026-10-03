@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "id": "natural-announcer",
+  "name": "アナウンサー",
+  "chain": [
+    {
+      "type": "compressor",
+      "enabled": true,
+      "params": {
+        "thresholdDb": -26,
+        "ratio": 4,
+        "attackMs": 8,
+        "releaseMs": 150,
+        "makeupDb": 5
+      }
+    },
+    {
+      "type": "eq",
+      "enabled": true,
+      "params": {
+        "hpfHz": 100,
+        "lowDb": 1,
+        "midDb": 2,
+        "midHz": 3000
+      }
+    },
+    {
+      "type": "reverb",
+      "enabled": true,
+      "params": {
+        "room": 0.15,
+        "damp": 0.5,
+        "mix": 0.04
+      }
+    }
+  ],
+  "outputTrimDb": 2.5
+}

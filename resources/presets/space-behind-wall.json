@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "id": "space-behind-wall",
+  "name": "壁の向こう",
+  "chain": [
+    {
+      "type": "eq",
+      "enabled": true,
+      "params": {
+        "hpfHz": 100,
+        "lpfHz": 1000,
+        "lowDb": 3
+      }
+    },
+    {
+      "type": "reverb",
+      "enabled": true,
+      "params": {
+        "room": 0.2,
+        "damp": 0.6,
+        "mix": 0.15
+      }
+    }
+  ],
+  "outputTrimDb": 0
+}

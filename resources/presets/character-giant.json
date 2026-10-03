@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "id": "character-giant",
+  "name": "巨人",
+  "shifter": {
+    "pitchSt": -10,
+    "formantSt": -6
+  },
+  "chain": [
+    {
+      "type": "eq",
+      "enabled": true,
+      "params": {
+        "lowDb": 4
+      }
+    },
+    {
+      "type": "reverb",
+      "enabled": true,
+      "params": {
+        "room": 0.3,
+        "damp": 0.5,
+        "mix": 0.15
+      }
+    }
+  ],
+  "outputTrimDb": -1.5
+}

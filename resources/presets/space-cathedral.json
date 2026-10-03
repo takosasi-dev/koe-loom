@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "space-cathedral",
+  "name": "大聖堂",
+  "shifter": {
+    "pitchSt": -1,
+    "formantSt": -0.5
+  },
+  "chain": [
+    {
+      "type": "reverb",
+      "enabled": true,
+      "params": {
+        "room": 1,
+        "damp": 0.5,
+        "mix": 0.55
+      }
+    }
+  ],
+  "outputTrimDb": 0
+}
