@@ -22,7 +22,7 @@ private:
     AppController& c;
     Navigator& nav;
     bool compact = false;
-    PillButton tabVoice, tabSound, tabSettings, mute, voice;
+    PillButton tabVoice, tabSound, tabTools, tabSettings, mute, voice;
     IconButton help;
 };
 

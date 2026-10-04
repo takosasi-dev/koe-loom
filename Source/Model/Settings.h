@@ -6,6 +6,7 @@
 
 #include <juce_core/juce_core.h>
 
+#include <map>
 #include <vector>
 
 namespace koe
@@ -18,6 +19,14 @@ struct HotkeyBinding
     int modifiers = 0;   // MOD_ALT=1, MOD_CONTROL=2, MOD_SHIFT=4, MOD_WIN=8 (Win32 RegisterHotKey values)
     int virtualKey = 0;  // Win32 VK code
     bool operator== (const HotkeyBinding&) const = default;
+};
+
+/** アプリごとの自動切り替え: while a program with this file name is in front, use this preset (INTERFACES.md §10). */
+struct AppSwitchRule
+{
+    juce::String exe;       // program file name, e.g. "VALORANT.exe" (compared ignoring case)
+    juce::String presetId;  // built-in or user preset id
+    bool operator== (const AppSwitchRule&) const = default;
 };
 
 struct Settings
@@ -124,6 +133,14 @@ struct Settings
     int layoutStyle = 0;                   // S-01 page: 0 案 A Studio (approved) / 1 案 B Paper / 2 案 C Mono
     juce::String themeId;                  // "" = darkTheme + accentColour + backgroundTone (as before);
                                            // "builtin:paper", "builtin:mono", or "user:<file name>" in paths::themesDir()
+
+    // ---- wave 8 (INTERFACES.md §10, owner request 2026-10-04). Every default keeps the old behaviour. ----
+    juce::StringArray momentaryRecipes;    // 押している間だけのエフェクト: index i = hotkey "momentary.<i+1>", a recipe id ("" or missing = none, max kMomentarySlots)
+    bool appSwitchOn = false;              // アプリごとの自動切り替え
+    bool appSwitchRestore = true;          // when no rule matches any more, go back to the preset used before the switch
+    std::vector<AppSwitchRule> appSwitchRules; // max kMaxAppSwitchRules, first match wins
+    std::map<juce::String, float> calibratedTrimDb; // 自分の声で音量合わせ: built-in preset id -> output trim (replaces its outputTrimDb)
+    juce::String calibratedAt;             // when that was measured (ISO 8601), "" = never
 
     bool operator== (const Settings&) const = default;
 };

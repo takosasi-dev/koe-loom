@@ -142,6 +142,9 @@ void AppController::resetSettings()
     d.voiceChangerOn = settings.voiceChangerOn;
     d.autoStart = settings.autoStart;
     d.soundboardHintShown = settings.soundboardHintShown;
+    d.momentaryRecipes = settings.momentaryRecipes; // they go with the hotkeys
+    d.calibratedTrimDb = settings.calibratedTrimDb; // a measurement, not a preference
+    d.calibratedAt = settings.calibratedAt;
     replaceSettings (d, false);
 }
 
@@ -165,6 +168,7 @@ void AppController::replaceSettings (const Settings& next, bool reopenDevices)
     soundboard->setDuckingDb (settings.duckingDb);
     setOutputGainDb (settings.outputGainDb); // F-12-4 notice either way
     applyEnvironment();                      // ... and applyAudioSettings (nullptr)
+    processor.setTrimDb (getEffectiveTrimDb()); // calibratedTrimDb may differ
     auto platformBefore = before;
     platformBefore.wasapiExclusive = settings.wasapiExclusive; // the devices are reopened once, below
     applyPlatformSettings (&platformBefore);

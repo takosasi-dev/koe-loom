@@ -317,6 +317,239 @@ public:
     std::vector<std::unique_ptr<HotkeyRow>> rows;
 };
 
+// ---- wave8/automation (INTERFACES.md §10.3): 押している間のエフェクト and アプリごとの自動切り替え ----
+/** 「押して試す」: onHold (true) while pressed (mouse or Space), onHold (false) on release or when deleted while pressed. */
+class HoldButton : public PillButton
+{
+public:
+    HoldButton() : PillButton (ja ("押して試す"), Style::outline) {}
+    ~HoldButton() override { if (down && onHold) onHold (false); }
+    std::function<void (bool)> onHold;
+    void buttonStateChanged() override
+    {
+        if (isDown() == down) return;
+        down = isDown();
+        if (onHold) onHold (down);
+    }
+
+private:
+    bool down = false;
+};
+
+/** Preset picker grouped by category (item id = library index + 1). */
+void fillPresetCombo (juce::ComboBox& cb, const PresetLibrary& lib)
+{
+    cb.clear (juce::dontSendNotification);
+    const auto& all = lib.all();
+    for (auto* cat : { "natural", "character", "device", "space", "layered", "user" })
+    {
+        bool heading = false;
+        for (int i = 0; i < int (all.size()); ++i)
+            if (all[size_t (i)].category() == cat)
+            {
+                if (! heading) cb.addSectionHeading (mainui::presetCategoryJa (cat));
+                heading = true;
+                cb.addItem (all[size_t (i)].name, i + 1);
+            }
+    }
+}
+
+void selectPreset (juce::ComboBox& cb, const PresetLibrary& lib, const juce::String& id)
+{
+    const auto& all = lib.all();
+    for (int i = 0; i < int (all.size()); ++i)
+        if (all[size_t (i)].id == id.toStdString()) { cb.setSelectedId (i + 1, juce::dontSendNotification); return; }
+    cb.setSelectedId (0, juce::dontSendNotification);
+    cb.setText (ja ("（見つかりません）"), juce::dontSendNotification);
+}
+
+/** Program name: type it, or pick one of the programs with a window (looked up only when the list opens). */
+class ProgramCombo : public juce::ComboBox
+{
+public:
+    explicit ProgramCombo (AppController& c) : controller (c)
+    {
+        setEditableText (true);
+        setTextWhenNothingSelected (ja ("プログラム名"));
+        setTitle (ja ("プログラム名"));
+        setTooltip (ja ("例: VALORANT.exe。右の矢印から、いま動いているプログラムを選べます"));
+    }
+    void showPopup() override
+    {
+        const auto typed = getText();
+        clear (juce::dontSendNotification);
+        const auto running = controller.listRunningPrograms();
+        for (int i = 0; i < running.size(); ++i) addItem (running[i], i + 1);
+        if (running.isEmpty())
+        {
+            addItem (ja ("（ウィンドウのあるプログラムが見つかりません）"), -1);
+            setItemEnabled (-1, false);
+        }
+        setText (typed, juce::dontSendNotification);
+        juce::ComboBox::showPopup();
+    }
+
+private:
+    AppController& controller;
+};
+
+/** The rule list of アプリごとの自動切り替え: one line per rule (program, preset, ×) and an add line at the bottom. */
+class AppRuleList : public juce::Component
+{
+public:
+    AppRuleList (AppController& c, Navigator& n) : controller (c), nav (n), program (c), add (ja ("追加"), PillButton::Style::outline, Icon::plus),
+        empty (ja ("規則はまだありません。プログラムとプリセットを選んで「追加」を押します。"), Theme::fontXS, Tone::sub),
+        full (ja ("規則は 20 個までです。"), Theme::fontXS, Tone::sub)
+    {
+        program.setComponentID ("settings.appSwitch.program");
+        preset.setComponentID ("settings.appSwitch.preset");
+        preset.setTitle (ja ("プリセット"));
+        preset.setTextWhenNothingSelected (ja ("プリセットを選ぶ"));
+        add.setComponentID ("settings.appSwitch.add");
+        add.onClick = [this] { addRule(); };
+        addAndMakeVisible (program);
+        addAndMakeVisible (preset);
+        addAndMakeVisible (add);
+        addChildComponent (empty);
+        addChildComponent (full);
+    }
+
+    void refresh()
+    {
+        const auto& s = controller.getSettings();
+        if (s.appSwitchRules != shown || presetCount != controller.getPresetLibrary().all().size()) rebuild (s.appSwitchRules);
+        const bool atMax = int (shown.size()) >= kMaxAppSwitchRules;
+        add.setEnabled (! atMax);
+        empty.setVisible (shown.empty());
+        full.setVisible (atMax);
+        resized();
+    }
+
+    int heightForWidth (int w) const
+    {
+        int h = int (lines.size()) * (Theme::controlH + Theme::space1);
+        if (empty.isVisible()) h += empty.heightForWidth (w) + Theme::space2;
+        h += stacked (w) ? 2 * Theme::controlH + Theme::space1 : Theme::controlH;
+        if (full.isVisible()) h += Theme::space1 + full.heightForWidth (w);
+        return h;
+    }
+
+    void resized() override
+    {
+        auto r = getLocalBounds();
+        for (auto& l : lines)
+        {
+            auto line = r.removeFromTop (Theme::controlH);
+            r.removeFromTop (Theme::space1);
+            l->remove.setBounds (line.removeFromRight (Theme::touchMin).withSizeKeepingCentre (Theme::touchMin, Theme::touchMin));
+            line.removeFromRight (Theme::space2);
+            l->exe.setBounds (line.removeFromLeft (line.getWidth() * 2 / 5));
+            line.removeFromLeft (Theme::space2);
+            l->preset.setBounds (line);
+        }
+        if (empty.isVisible())
+        {
+            empty.setBounds (r.removeFromTop (empty.heightForWidth (r.getWidth())));
+            r.removeFromTop (Theme::space2);
+        }
+        const int addW = add.preferredWidth();
+        auto line = r.removeFromTop (Theme::controlH);
+        if (stacked (getWidth()))
+        {
+            program.setBounds (line);
+            r.removeFromTop (Theme::space1);
+            line = r.removeFromTop (Theme::controlH);
+        }
+        add.setBounds (line.removeFromRight (addW).withSizeKeepingCentre (addW, Theme::buttonH));
+        line.removeFromRight (Theme::space2);
+        if (! stacked (getWidth()))
+        {
+            program.setBounds (line.removeFromLeft (line.getWidth() * 2 / 5));
+            line.removeFromLeft (Theme::space2);
+        }
+        preset.setBounds (line);
+        if (full.isVisible())
+        {
+            r.removeFromTop (Theme::space1);
+            full.setBounds (r.removeFromTop (full.heightForWidth (r.getWidth())));
+        }
+    }
+
+    std::function<void()> onHeightChanged;
+
+private:
+    struct Line
+    {
+        TextLabel exe { {}, Theme::fontS, Tone::text, false, true };
+        juce::ComboBox preset;
+        IconButton remove { ja ("この規則を削除"), Icon::close };
+    };
+
+    static bool stacked (int w) { return w < m::comboW + Theme::space5 * 6; }
+
+    void rebuild (const std::vector<AppSwitchRule>& rules)
+    {
+        shown = rules;
+        presetCount = controller.getPresetLibrary().all().size();
+        fillPresetCombo (preset, controller.getPresetLibrary());
+        lines.clear();
+        for (int i = 0; i < int (rules.size()); ++i)
+        {
+            auto l = std::make_unique<Line>();
+            l->exe.setText (rules[size_t (i)].exe);
+            l->exe.setJustification (juce::Justification::centredLeft);
+            l->exe.setMaxLines (1);
+            fillPresetCombo (l->preset, controller.getPresetLibrary());
+            selectPreset (l->preset, controller.getPresetLibrary(), rules[size_t (i)].presetId);
+            l->preset.setTitle (rules[size_t (i)].exe + ja (" のプリセット"));
+            l->preset.setComponentID ("settings.appSwitch.rule." + juce::String (i + 1) + ".preset");
+            l->remove.setComponentID ("settings.appSwitch.rule." + juce::String (i + 1) + ".remove");
+            auto* cb = &l->preset;
+            cb->onChange = [this, i, cb]
+            {
+                const int k = cb->getSelectedId() - 1;
+                const auto& all = controller.getPresetLibrary().all();
+                if (k < 0 || k >= int (all.size())) return;
+                const juce::String id (all[size_t (k)].id);
+                controller.updateSettings ([i, id] (Settings& s) { if (i < int (s.appSwitchRules.size())) s.appSwitchRules[size_t (i)].presetId = id; });
+            };
+            l->remove.onClick = [this, i]
+            {
+                controller.updateSettings ([i] (Settings& s) { if (i < int (s.appSwitchRules.size())) s.appSwitchRules.erase (s.appSwitchRules.begin() + i); });
+            };
+            addAndMakeVisible (l->exe);
+            addAndMakeVisible (l->preset);
+            addAndMakeVisible (l->remove);
+            lines.push_back (std::move (l));
+        }
+        if (onHeightChanged) onHeightChanged();
+    }
+
+    void addRule()
+    {
+        auto exe = program.getText().trim();
+        if (exe.isEmpty()) { nav.showToast (ja ("プログラム名を入れるか、一覧から選んでください。")); return; }
+        if (! exe.containsChar ('.')) exe << ".exe";
+        const int k = preset.getSelectedId() - 1;
+        const auto& all = controller.getPresetLibrary().all();
+        if (k < 0 || k >= int (all.size())) { nav.showToast (ja ("切り替えるプリセットを選んでください。")); return; }
+        const juce::String id (all[size_t (k)].id);
+        controller.updateSettings ([exe, id] (Settings& s) { s.appSwitchRules.push_back ({ exe, id }); });
+        program.setText ({}, juce::dontSendNotification);
+        preset.setSelectedId (0, juce::dontSendNotification);
+    }
+
+    AppController& controller;
+    Navigator& nav;
+    std::vector<AppSwitchRule> shown { AppSwitchRule {} }; // differs from any real list: the first refresh builds
+    size_t presetCount = 0;
+    std::vector<std::unique_ptr<Line>> lines;
+    ProgramCombo program;
+    juce::ComboBox preset;
+    PillButton add;
+    TextLabel empty, full;
+};
+
 /** Label / value pairs for the diagnostics status (values in the mono font, F-14-8). */
 class KeyValueList : public juce::Component
 {
@@ -997,6 +1230,64 @@ struct SettingsView::Impl final : juce::ChangeListener, juce::Timer
         }
         card.addBlock (std::move (list), [this] (int w) { return hotkeyList->heightForWidth (w); });
         regBlock (*hotkeyList, Kind::plain);
+        buildMomentary();
+    }
+
+    // wave8/automation (INTERFACES.md §10.3): one row per hotkey 「押している間のエフェクト 1..4」: the recipe and 「押して試す」
+    void buildMomentary()
+    {
+        auto& card = addCard (2, "押している間のエフェクト", "ホットキーを押している間だけ、声にエフェクトをかけます。キーは上の一覧で割り当てます");
+        card.setComponentID ("settings.momentary");
+        const auto recipes = AppController::getMomentaryRecipes();
+        for (int i = 0; i < kMomentarySlots; ++i)
+        {
+            const auto n = juce::String (i + 1);
+            auto box = std::make_unique<LayoutBox>();
+            auto combo = std::make_unique<juce::ComboBox>();
+            auto* cb = combo.get();
+            cb->setComponentID ("settings.momentary." + n);
+            cb->setTitle (ja ("押している間のエフェクト ") + n);
+            cb->setJustificationType (juce::Justification::centredLeft);
+            cb->addItem (ja ("なし"), 1);
+            for (int k = 0; k < int (recipes.size()); ++k) cb->addItem (recipes[size_t (k)].nameJa, k + 2);
+            cb->onChange = [this, cb, i, recipes]
+            {
+                const int k = cb->getSelectedId() - 2;
+                c.setMomentaryRecipe (i, k >= 0 && k < int (recipes.size()) ? recipes[size_t (k)].id : juce::String());
+            };
+            auto hold = std::make_unique<HoldButton>();
+            auto* hb = hold.get();
+            hb->setComponentID ("settings.momentary." + n + ".try");
+            hb->onHold = [&ctl = c, i] (bool down)
+            {
+                setMomentaryUiHold (i, down);
+                ctl.setMomentaryHeld (i, down);
+            };
+            box->addAndMakeVisible (combo.release());
+            box->addAndMakeVisible (hold.release());
+            box->layout = [cb, hb] (juce::Rectangle<int> r)
+            {
+                const int bw = hb->preferredWidth();
+                hb->setBounds (r.removeFromRight (bw).withSizeKeepingCentre (bw, Theme::buttonH));
+                r.removeFromRight (Theme::space2);
+                cb->setBounds (r);
+            };
+            auto& r = card.addRow (std::make_unique<SettingRow> (ja ("押している間のエフェクト ") + n, juce::String(), std::move (box), m::comboW,
+                                                                 m::comboW * 2 / 3, fixedH (Theme::controlH)));
+            auto* desc = &r.getDescription();
+            refreshers.push_back ([this, cb, hb, desc, i, recipes] (const Settings& s)
+            {
+                const auto id = i < s.momentaryRecipes.size() ? s.momentaryRecipes[i] : juce::String();
+                int sel = 1;
+                for (int k = 0; k < int (recipes.size()); ++k)
+                    if (recipes[size_t (k)].id == id) sel = k + 2;
+                cb->setSelectedId (sel, juce::dontSendNotification);
+                hb->setEnabled (sel > 1);
+                const auto key = c.getHotkeyText ("momentary." + juce::String (i + 1));
+                desc->setText (key.isNotEmpty() ? ja ("キー: ") + key : ja ("キーは未割り当てです"));
+            });
+            reg (r, "押している間 エフェクト 一時 ホットキー 押して試す やまびこ エコー 残響 リバーブ 電話 ラジオ メガホン ロボット トランシーバー");
+        }
     }
 
     // ------------------------------------------------------------------------------- startup (F-09) and updates (§7.4)
@@ -1029,6 +1320,24 @@ struct SettingsView::Impl final : juce::ChangeListener, juce::Timer
                    &Settings::startupLastPreset);
         addToggle (card, "trayNotifications", "トレイの通知", "トレイから通知を出します", "通知 トレイ バルーン お知らせ", &Settings::trayNotifications);
         endDetails();
+
+        // wave8/automation (INTERFACES.md §10.3)
+        auto& sw = addCard (3, "アプリごとの自動切り替え", "前に出ているプログラムに合わせて、プリセットを切り替えます");
+        sw.setComponentID ("settings.appSwitch");
+        addToggle (sw, "appSwitchOn", "自動で切り替える",
+                   "下の規則のプログラムが前に出たとき、そのプリセットに切り替えます。作業中のプリセットに変更があるときは切り替えません",
+                   "自動切り替え アプリ ゲーム プログラム exe 前面", &Settings::appSwitchOn);
+        enableIf (addToggle (sw, "appSwitchRestore", "離れたら元に戻す",
+                             "規則のプログラムが前から外れたら、切り替える前のプリセットに戻します。その間に自分で変えたときは戻しません",
+                             "自動切り替え 戻す 元に戻す", &Settings::appSwitchRestore),
+                  [] (const Settings& s) { return s.appSwitchOn; });
+        auto rules = std::make_unique<AppRuleList> (c, nav);
+        auto* rulesRaw = rules.get();
+        rulesRaw->setComponentID ("settings.appSwitch.rules");
+        rulesRaw->onHeightChanged = [this] { layoutContent(); };
+        refreshers.push_back ([rulesRaw] (const Settings&) { rulesRaw->refresh(); });
+        sw.addBlock (std::move (rules), [rulesRaw] (int w) { return rulesRaw->heightForWidth (w); });
+        regBlock (*rulesRaw, Kind::everyday, ja ("自動切り替え 規則 アプリ ゲーム プログラム exe 追加 削除"));
 
         auto& upd = addCard (3, "更新", "新しい版は GitHub の公開ページから受け取ります");
         addToggle (upd, "autoUpdate", "自動で更新する", "GitHub の公開ページを確認して新しい版をダウンロードし、終了時に置き換えます。OFF のときは通信しません",

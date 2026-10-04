@@ -92,7 +92,7 @@ public:
         : c (ctl), nav (n), sidebar (ctl, n), picker (ctl, n), voice (ctl), mute (ctl), input (ctl, n, false), output (ctl, n, true),
           shifter (ctl), layers (ctl, n), rack (ctl, n), bottom (ctl, n, true),
           settings (ja ("設定"), PillButton::Style::outline), help (ja ("ヘルプ"), PillButton::Style::outline, Icon::help),
-          sound (ja ("音源"), PillButton::Style::outline, Icon::speaker), extras (ctl, n)
+          sound (ja ("音源"), PillButton::Style::outline, Icon::speaker), tools (ja ("ツール"), PillButton::Style::outline), extras (ctl, n)
     {
         setComponentID ("voice.view");
         settings.setComponentID ("mono.settings");
@@ -104,10 +104,13 @@ public:
         sound.setComponentID ("mono.soundboard");
         sound.setTooltip (ja ("サウンドボード（効果音を鳴らす）"));
         sound.onClick = [this] { nav.showPage (Navigator::Page::soundboard); };
+        tools.setComponentID ("mono.tools");
+        tools.setTooltip (ja ("ツール（試し録り・録音・声の高さ・混ぜる・音量合わせ）"));
+        tools.onClick = [this] { nav.showPage (Navigator::Page::tools); };
         bottom.setComponentID ("voice.bottom");
         bottom.setCompact (true); // monitor switch + 遅延 / XRUN / CPU fit the narrower body (the volume is behind 「モニター」)
         for (auto* comp : std::initializer_list<juce::Component*> { &sidebar, &picker, &voice, &mute, &input, &output, &shifter, &layers, &rack,
-                                                                    &bottom, &settings, &help, &sound, &extras })
+                                                                    &bottom, &settings, &help, &sound, &tools, &extras })
             addAndMakeVisible (comp);
         applyCompact();
         refresh();
@@ -199,7 +202,7 @@ private:
         shifter.setCompact (compact);
         layers.setCompact (compact);
         rack.setCompact (compact);
-        for (auto* b : { &settings, &help, &sound }) b->setFontSize (compact ? Theme::fontXS : Theme::fontS);
+        for (auto* b : { &settings, &help, &sound, &tools }) b->setFontSize (compact ? Theme::fontXS : Theme::fontS);
         extras.setStyle (! compact, ! compact, compact ? Theme::fontXS : Theme::fontS); // §9.4: a column by the mute (wide), the header row (narrow)
     }
 
@@ -209,13 +212,15 @@ private:
         auto s = sideArea.reduced (Theme::space3);
         logoArea = s.removeFromTop (Theme::space5);
         s.removeFromTop (Theme::space2 + Theme::space1);
+        // 2 x 2: 設定 / ツール above ヘルプ / 音源 (a fourth button does not fit one row of the 248 px sidebar)
+        auto navRow2 = s.removeFromBottom (Theme::buttonH);
+        s.removeFromBottom (Theme::space2);
         auto navRow = s.removeFromBottom (Theme::buttonH);
-        const int bw = (navRow.getWidth() - 2 * Theme::space2) / 3;
-        for (auto* b : { &settings, &help, &sound })
-        {
-            b->setBounds (navRow.removeFromLeft (bw));
-            navRow.removeFromLeft (Theme::space2);
-        }
+        const int bw = (navRow.getWidth() - Theme::space2) / 2;
+        settings.setBounds (navRow.removeFromLeft (bw));
+        tools.setBounds (navRow.removeFromRight (bw));
+        help.setBounds (navRow2.removeFromLeft (bw));
+        sound.setBounds (navRow2.removeFromRight (bw));
         s.removeFromBottom (Theme::space2 + Theme::space1);
         sidebar.setBounds (s);
 
@@ -249,7 +254,7 @@ private:
         sideArea = {};
         auto m = r.reduced (Theme::space2 + Theme::space1);
         auto row1 = m.removeFromTop (Theme::controlH);
-        for (auto* b : { &sound, &help, &settings })
+        for (auto* b : { &sound, &help, &tools, &settings })
         {
             const int w = b->preferredWidth();
             b->setBounds (row1.removeFromRight (w).withSizeKeepingCentre (w, Theme::touchMin));
@@ -324,7 +329,7 @@ private:
     LayersCard layers;
     ChainRack rack;
     BottomBar bottom;
-    PillButton settings, help, sound;
+    PillButton settings, help, sound, tools;
     VoiceExtras extras;
     juce::Rectangle<int> sideArea, logoArea;
 };

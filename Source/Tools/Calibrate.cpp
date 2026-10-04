@@ -11,7 +11,7 @@
 
 namespace koe::tools
 {
-std::vector<float> renderPreset (const Preset& preset, const std::vector<float>& input, int& latencyOut)
+std::vector<float> renderPreset (const Preset& preset, const std::vector<float>& input, int& latencyOut, double sampleRate)
 {
     constexpr int block = 480;
     VoiceProcessor vp;
@@ -39,11 +39,11 @@ std::vector<float> renderPreset (const Preset& preset, const std::vector<float>&
         vp.setLayer (i, lp);
     }
     vp.setTrimDb (preset.outputTrimDb);
-    vp.prepare (test::kSr, block);
+    vp.prepare (sampleRate, block);
     std::vector<SlotDef> buildable;
     for (auto& s : preset.chain)
         if (hasEffectFactory (s.type)) buildable.push_back (s);
-    vp.requestChain (EffectChain::create (buildable, test::kSr, block));
+    vp.requestChain (EffectChain::create (buildable, sampleRate, block));
 
     std::vector<float> out (input.size());
     for (size_t pos = 0; pos < input.size(); pos += block)
@@ -55,30 +55,39 @@ std::vector<float> renderPreset (const Preset& preset, const std::vector<float>&
     return out;
 }
 
-float measureLevelDb (const std::vector<float>& input, const std::vector<float>& output, int latency)
+float measureLevelDb (const std::vector<float>& input, const std::vector<float>& output, int latency, double sampleRate)
 {
-    const int start = int (test::kSr) + latency;
-    const int n = int (input.size()) - int (test::kSr); // to the end of the input (no tail)
+    const int start = int (sampleRate) + latency;
+    const int n = int (input.size()) - int (sampleRate); // to the end of the input (no tail)
     if (n <= 0 || start + n > int (output.size())) return -120.0f;
     return test::rmsDb (output.data() + start, n);
+}
+
+float presetLevelDb (const Preset& preset, const std::vector<float>& speech, double sampleRate)
+{
+    // pad with silence so the latency-shifted window is fully inside the output
+    auto input = speech;
+    input.resize (speech.size() + size_t (sampleRate), 0.0f);
+    int lat = 0;
+    const auto out = renderPreset (preset, input, lat, sampleRate);
+    return measureLevelDb (speech, out, lat, sampleRate);
+}
+
+float calibratedTrimDb (float shippedTrimDb, float diffDb)
+{
+    if (std::abs (diffDb) <= 1.0f) return shippedTrimDb; // tools/apply_trims.py --threshold 1.0
+    return kTrimDb.clamp (std::round ((shippedTrimDb - diffDb) * 2.0f) / 2.0f);
 }
 
 int calibratePresets (const juce::String& csvPath)
 {
     bool real = false;
     const auto speech = test::referenceSpeechOrSynth (&real);
-    // pad with silence so the latency-shifted window is fully inside the output
-    auto input = speech;
-    input.resize (input.size() + size_t (test::kSr), 0.0f);
-
     PresetLibrary lib (paths::presetsDir());
     lib.reload();
     const auto* asis = lib.find ("natural-asis");
     if (asis == nullptr) return 1;
-    int lat = 0;
-    auto ref = renderPreset (*asis, input, lat);
-    const auto inSpan = std::vector<float> (input.begin(), input.begin() + long (speech.size()));
-    const float refDb = measureLevelDb (inSpan, ref, lat);
+    const float refDb = presetLevelDb (*asis, speech);
 
     juce::String csv ("id,diffDb,suggestedTrimDb,usesReference\n");
     for (auto& p : lib.all())
@@ -86,9 +95,7 @@ int calibratePresets (const juce::String& csvPath)
         if (! p.builtin) continue;
         auto untrimmed = p;
         untrimmed.outputTrimDb = 0.0f;
-        int l = 0;
-        const auto out = renderPreset (untrimmed, input, l);
-        const float diff = measureLevelDb (inSpan, out, l) - refDb;
+        const float diff = presetLevelDb (untrimmed, speech) - refDb;
         const float trim = juce::jlimit (-12.0f, 6.0f, std::round (-diff * 2.0f) / 2.0f); // 0.5 dB steps
         csv << juce::String (p.id) << "," << juce::String (diff, 2) << "," << juce::String (trim, 1) << "," << (real ? "1" : "0") << "\n";
     }

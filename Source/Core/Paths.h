@@ -18,4 +18,5 @@ inline juce::File soundboardFile() { return dataDir().getChildFile ("soundboard.
 inline juce::File logsDir() { return dataDir().getChildFile ("logs"); }
 inline juce::File themesDir() { return dataDir().getChildFile ("themes"); } // user themes (INTERFACES.md §8)
 inline juce::File irDir() { return dataDir().getChildFile ("ir"); }         // impulse responses for "convolution" (INTERFACES.md §9)
+inline juce::File recordingsDir() { return dataDir().getChildFile ("recordings"); } // WAV recordings of the processed voice (INTERFACES.md §10)
 } // namespace koe::paths

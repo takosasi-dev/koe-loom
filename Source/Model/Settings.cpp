@@ -122,6 +122,21 @@ Settings clampSettings (const Settings& in, juce::StringArray* clampedKeys)
     while (fav.size() > kMaxFavorites) fav.remove (fav.size() - 1);
     if (fav != s.favorites) { s.favorites = fav; changed.add ("favorites"); }
 
+    auto recipes = s.momentaryRecipes;
+    while (recipes.size() > kMomentarySlots) recipes.remove (recipes.size() - 1);
+    if (recipes != s.momentaryRecipes) { s.momentaryRecipes = recipes; changed.add ("momentaryRecipes"); }
+
+    std::vector<AppSwitchRule> rules;
+    for (auto& rule : s.appSwitchRules)
+        if (rule.exe.trim().isNotEmpty() && isValidPresetId (rule.presetId.toStdString()) && int (rules.size()) < kMaxAppSwitchRules)
+            rules.push_back ({ rule.exe.trim(), rule.presetId });
+    if (rules != s.appSwitchRules) { s.appSwitchRules = std::move (rules); changed.add ("appSwitchRules"); }
+
+    std::map<juce::String, float> trims;
+    for (auto& [id, db] : s.calibratedTrimDb)
+        if (isValidPresetId (id.toStdString()) && std::isfinite (db)) trims[id] = kTrimDb.clamp (db);
+    if (trims != s.calibratedTrimDb) { s.calibratedTrimDb = std::move (trims); changed.add ("calibratedTrimDb"); }
+
     std::vector<HotkeyBinding> keys;
     for (auto h : s.hotkeys)
     {
@@ -231,7 +246,32 @@ Settings loadSettings (const juce::File& file, SettingsLoadResult& result)
     r.get ("updateSkippedVersion", s.updateSkippedVersion);
     r.get ("layoutStyle", s.layoutStyle);
     r.get ("themeId", s.themeId);
+    r.get ("appSwitchOn", s.appSwitchOn);
+    r.get ("appSwitchRestore", s.appSwitchRestore);
+    r.get ("calibratedAt", s.calibratedAt);
 
+    if (auto* mr = root["momentaryRecipes"].getArray())
+    {
+        for (auto& v : *mr)
+            s.momentaryRecipes.add (v.isString() ? v.toString() : juce::String());
+    }
+    if (auto* rules = root["appSwitchRules"].getArray())
+    {
+        for (auto& v : *rules)
+        {
+            AppSwitchRule rule;
+            juce::StringArray ignored;
+            Reader rr { v, ignored };
+            rr.get ("exe", rule.exe);
+            rr.get ("presetId", rule.presetId);
+            s.appSwitchRules.push_back (rule);
+        }
+    }
+    if (auto* trims = root["calibratedTrimDb"].getDynamicObject())
+    {
+        for (auto& p : trims->getProperties())
+            if (p.value.isInt() || p.value.isInt64() || p.value.isDouble()) s.calibratedTrimDb[p.name.toString()] = float (double (p.value));
+    }
     if (auto* fav = root["favorites"].getArray())
     {
         for (auto& v : *fav)
@@ -345,6 +385,24 @@ bool saveSettings (const Settings& s, const juce::File& file)
     o->setProperty ("updateSkippedVersion", s.updateSkippedVersion);
     o->setProperty ("layoutStyle", s.layoutStyle);
     o->setProperty ("themeId", s.themeId);
+    juce::Array<juce::var> recipes;
+    for (auto& m : s.momentaryRecipes) recipes.add (m);
+    o->setProperty ("momentaryRecipes", recipes);
+    o->setProperty ("appSwitchOn", s.appSwitchOn);
+    o->setProperty ("appSwitchRestore", s.appSwitchRestore);
+    juce::Array<juce::var> rules;
+    for (auto& rule : s.appSwitchRules)
+    {
+        auto* ro = new juce::DynamicObject();
+        ro->setProperty ("exe", rule.exe);
+        ro->setProperty ("presetId", rule.presetId);
+        rules.add (juce::var (ro));
+    }
+    o->setProperty ("appSwitchRules", rules);
+    auto* trims = new juce::DynamicObject();
+    for (auto& [id, db] : s.calibratedTrimDb) trims->setProperty (id, db);
+    o->setProperty ("calibratedTrimDb", juce::var (trims));
+    o->setProperty ("calibratedAt", s.calibratedAt);
 
     // replaceWithText writes a temporary file next to the target and then replaces it (atomic save)
     file.getParentDirectory().createDirectory();

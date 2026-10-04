@@ -33,6 +33,8 @@ public:
         std::atomic<bool> enabled { true };
         std::array<std::atomic<float>, kMaxEffectParams> params {};
         std::atomic<int> pendingTrigger { 0 };   // EffectTrigger value, 0 = none
+        std::atomic<float> wet { 1.0f };         // 0..1, how much of the slot's output replaces its input while ON
+                                                 // (プリセットを混ぜる, INTERFACES.md §10.1). Glides like the ON/OFF fade.
 
         // ---- written by the audio thread, read by the message thread ----
         std::atomic<bool> autoStopped { false }; // NaN/Inf auto-bypass (F-04-11) or watchdog (§5.6)

@@ -46,6 +46,31 @@ public:
     virtual float layerSemitones (int key, bool minor, int degree) const = 0;
 };
 
+/** Receives the samples at one point of the path (INTERFACES.md §10.1). Audio thread: no allocation, lock or I/O. */
+class IAudioTap
+{
+public:
+    virtual ~IAudioTap() = default;
+    virtual void push (const float* samples, int numSamples) = 0;
+};
+
+/** Stands in for the device input (試し録り playback). Audio thread. Return false to use the device input this block. */
+class IInputSource
+{
+public:
+    virtual ~IInputSource() = default;
+    virtual bool render (float* dest, int numSamples) = 0;
+};
+
+/** Processes the voice after the voice changer path (shifter, layers, chain, trim; or the dry voice when it is OFF)
+    and before ducking / soundboard / output gain (押している間だけのエフェクト). Audio thread, in place. */
+class IVoicePostProcessor
+{
+public:
+    virtual ~IVoicePostProcessor() = default;
+    virtual void process (float* samples, int numSamples) = 0;
+};
+
 /**
     The whole signal path of spec §5.2, independent of any audio device so it can be rendered offline
     (spec §9.4). All setters are thread-safe (atomics) and take effect smoothly; process() is the only
@@ -130,6 +155,18 @@ public:
     void setAuxSource (IAuxSource* src) noexcept { aux.store (src); }
     void setMonitorSink (IMonitorSink* sink) noexcept { monitor.store (sink); }
 
+    // ---- wave 8 hooks (INTERFACES.md §10.1). Message thread sets, audio thread reads; nullptr = none. ----
+    enum class TapPoint { input, output };
+    static constexpr int kTapsPerPoint = 4;
+    /** input: the device input as it arrives (before the input source, gain and everything else; may hold non-finite
+        samples). output: what goes to the virtual mic (after the limiter and fade-in, before setOutputMuted). */
+    void setTap (TapPoint point, int index, IAudioTap* tap) noexcept
+    { (point == TapPoint::input ? inputTaps : outputTaps)[size_t (index)].store (tap, std::memory_order_release); }
+    void setInputSource (IInputSource* src) noexcept { inputSource.store (src, std::memory_order_release); }
+    void setPostProcessor (IVoicePostProcessor* p) noexcept { postProcessor.store (p, std::memory_order_release); }
+    /** Silences the virtual mic only (30 ms fade); the monitor and the output tap keep the sound. */
+    void setOutputMuted (bool muted) noexcept { outputMuted.store (muted); }
+
     // ---- state for the UI ----
     struct MeterValues { float inputPeak = 0, outputPeak = 0; bool inputClip = false, outputClip = false; };
     /** Peak since the last call (linear), clip flags since the last call. */
@@ -199,6 +236,10 @@ private:
     std::atomic<IScaleLayerPitch*> scalePitch { nullptr };
     std::atomic<IAuxSource*> aux { nullptr };
     std::atomic<IMonitorSink*> monitor { nullptr };
+    std::array<std::atomic<IAudioTap*>, kTapsPerPoint> inputTaps {}, outputTaps {};
+    std::atomic<IInputSource*> inputSource { nullptr };
+    std::atomic<IVoicePostProcessor*> postProcessor { nullptr };
+    std::atomic<bool> outputMuted { false };
     std::atomic<bool> fadeInRequest { false };
     std::atomic<int> testBusyMicros { 0 };
     std::atomic<bool> highPassOn { false }, agcOn { false };
@@ -222,7 +263,7 @@ private:
     dsp::DelayLine dryDelay;
     int shifterLatency = 0;  // message thread view (the latest requested set)
 
-    dsp::Ramp inGain, outGain, trimGain, muteGain, voiceMix, nsMix, startFade, duckGain, highPassMix, agcGain;
+    dsp::Ramp inGain, outGain, trimGain, muteGain, outMuteGain, voiceMix, nsMix, startFade, duckGain, highPassMix, agcGain;
     int layerCutSteps = 1;
     bool voicePathRunning = false;
 
@@ -235,7 +276,7 @@ private:
     dsp::Ramp chainFade;
 
     // ---- buffers (prepared) ----
-    std::vector<float> bufIn, bufNs, bufVoice, bufMain, bufNext, bufShift, bufLayer, bufChainOld, bufMon, bufAuxOut;
+    std::vector<float> bufIn, bufNs, bufVoice, bufMain, bufNext, bufShift, bufLayer, bufChainOld, bufMon, bufAuxOut, bufSource, bufTap;
 
     // ---- meters ----
     std::atomic<float> inPeak { 0.0f }, outPeak { 0.0f };

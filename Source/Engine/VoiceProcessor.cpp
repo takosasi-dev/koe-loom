@@ -156,13 +156,14 @@ void VoiceProcessor::prepare (double sr, int maxBlockSize)
     swapFade.prepare (sr, kChainSwapFadeMs);
     swapFade.snap (0.0f);
 
-    for (auto* b : { &bufIn, &bufNs, &bufVoice, &bufMain, &bufNext, &bufShift, &bufLayer, &bufChainOld, &bufMon, &bufAuxOut })
+    for (auto* b : { &bufIn, &bufNs, &bufVoice, &bufMain, &bufNext, &bufShift, &bufLayer, &bufChainOld, &bufMon, &bufAuxOut, &bufSource, &bufTap })
         b->assign (size_t (maxBlock), 0.0f);
 
     inGain.prepare (sr, kParamSmoothMs);     inGain.snap (dsp::dbToGain (inputGainDb.load()));
     outGain.prepare (sr, kParamSmoothMs);    outGain.snap (dsp::dbToGain (outputGainDb.load()));
     trimGain.prepare (sr, kParamSmoothMs);   trimGain.snap (dsp::dbToGain (trimDb.load()));
     muteGain.prepare (sr, kMuteFadeMs);      muteGain.snap (micMute.load() ? 0.0f : 1.0f);
+    outMuteGain.prepare (sr, kMuteFadeMs);   outMuteGain.snap (outputMuted.load() ? 0.0f : 1.0f);
     voiceMix.prepare (sr, kVoiceToggleFadeMs); voiceMix.snap (voiceOn.load() ? 1.0f : 0.0f);
     nsMix.prepare (sr, 20.0f);               nsMix.snap (noiseOn.load() && ns.isAvailable() ? 1.0f : 0.0f);
     startFade.prepare (sr, kStartupFadeMs);  startFade.snap (0.0f); startFade.setTarget (1.0f);
@@ -203,6 +204,12 @@ void VoiceProcessor::processBlock (const float* in, float* outL, float* outR, in
         startFade.snap (0.0f);
         startFade.setTarget (1.0f);
     }
+
+    // 0) wave 8 (INTERFACES.md §10.1): taps see the device input; an input source (試し録り) may stand in for it
+    for (auto& t : inputTaps)
+        if (auto* tap = t.load (std::memory_order_acquire)) tap->push (in, n);
+    if (auto* src = inputSource.load (std::memory_order_acquire); src != nullptr && src->render (bufSource.data(), n))
+        in = bufSource.data();
 
     // 1) input: non-finite scrub (E-17), input gain, meter
     inGain.setTarget (dsp::dbToGain (inputGainDb.load (std::memory_order_relaxed)));
@@ -303,6 +310,7 @@ void VoiceProcessor::processBlock (const float* in, float* outL, float* outR, in
 
     // 5) voice changer path (shifter + layers + chain + trim) mixed with the dry path
     processVoicePath (bufIn.data(), n);
+    if (auto* post = postProcessor.load (std::memory_order_acquire)) post->process (bufVoice.data(), n);
 
     // 6) ducking + aux (soundboard). Monitor mix = voice + aux "to monitor" part.
     auto* a = aux.load (std::memory_order_acquire);
@@ -316,6 +324,7 @@ void VoiceProcessor::processBlock (const float* in, float* outL, float* outR, in
 
     // 7) output gain -> limiter -> non-finite scrub -> fade-in -> stereo
     outGain.setTarget (dsp::dbToGain (outputGainDb.load (std::memory_order_relaxed)));
+    outMuteGain.setTarget (outputMuted.load (std::memory_order_relaxed) ? 0.0f : 1.0f);
     for (int i = 0; i < n; ++i)
     {
         const float g = outGain.next();
@@ -331,15 +340,19 @@ void VoiceProcessor::processBlock (const float* in, float* outL, float* outR, in
         if (! std::isfinite (v)) v = 0.0f;
         const float f = startFade.next();
         v *= f;
+        bufTap[size_t (i)] = v;
+        op = std::max (op, std::abs (v));
+        v *= outMuteGain.next();
         outL[i] = v;
         if (outR != nullptr) outR[i] = v;
-        op = std::max (op, std::abs (v));
         float m = std::clamp (bufMon[size_t (i)], -ceiling, ceiling) * f;
         bufMon[size_t (i)] = std::isfinite (m) ? m : 0.0f;
     }
     atomicMax (outPeak, op);
     if (op >= ceiling * 0.999f) outClip.store (true, std::memory_order_relaxed);
     if (auto* sink = monitor.load (std::memory_order_acquire)) sink->push (bufMon.data(), n);
+    for (auto& t : outputTaps)
+        if (auto* tap = t.load (std::memory_order_acquire)) tap->push (bufTap.data(), n);
 }
 
 bool VoiceProcessor::retireCurrentSet() noexcept

@@ -31,6 +31,8 @@ struct SlotDef
     bool enabled = true;
     std::vector<float> params; // one per ParamSpec, in registry order, spec units, choice = index
     std::string file;          // "convolution" only: a file name inside paths::irDir(), no folders (INTERFACES.md §9). JSON key "file", optional
+    float wet = 1.0f;          // 0..1 how much of the slot's output is heard while ON (プリセットを混ぜる, INTERFACES.md §10).
+                               // JSON key "wet", optional, written only when < 1
 
     bool operator== (const SlotDef&) const = default;
 };

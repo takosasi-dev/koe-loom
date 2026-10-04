@@ -36,8 +36,9 @@ std::unique_ptr<EffectChain> EffectChain::create (const std::vector<SlotDef>& de
         fx->reset();
         s->fx = std::move (fx);
         s->enabled.store (d.enabled);
+        s->wet.store (std::clamp (d.wet, 0.0f, 1.0f));
         s->running = d.enabled;
-        s->fade = d.enabled ? 1.0f : 0.0f;
+        s->fade = d.enabled ? s->wet.load() : 0.0f;
         s->latency.store (d.enabled ? s->fx->getLatencySamples() : 0);
         s->dry.assign (size_t (maxBlockSize), 0.0f);
         s->onsetLeft = chain->onsetSamples;
@@ -147,8 +148,8 @@ void EffectChain::processChunk (float* x, int n)
             continue;
         }
 
-        const float target = want ? 1.0f : 0.0f;
-        if (s.fade != target || ! want)
+        const float target = want ? std::clamp (s.wet.load (std::memory_order_relaxed), 0.0f, 1.0f) : 0.0f;
+        if (s.fade != 1.0f || target != 1.0f) // steady at wet 1 (the usual case): the effect's output as is
         {
             for (int i = 0; i < n; ++i)
             {

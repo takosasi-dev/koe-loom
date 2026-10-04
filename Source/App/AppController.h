@@ -7,6 +7,10 @@
 // UI pattern: listen with addChangeListener() (sent after any state change), poll getStatus() /
 // pollMeters() from a 30 fps timer (F-08-1), read the model with the getters, call setters.
 
+#include "App/Wave8Analysis.h"
+#include "App/Wave8Automation.h"
+#include "App/Wave8Capture.h"
+#include "App/Wave8Morph.h"
 #include "Engine/AudioEngine.h"
 #include "Engine/CableProbe.h"
 #include "Engine/MonitorOutput.h"
@@ -154,6 +158,79 @@ public:
         Same seed -> same result. Refuses when the looper has a recording (E-27). Marks the preset modified. */
     bool randomizeCurrent (uint32_t seed, juce::String& whyNot);
 
+    // ================================================================ wave 8 (INTERFACES.md §10, owner request 2026-10-04)
+    // ---- 試し録り and WAV recording (AppController_Capture.cpp, owner wave8/capture) ----
+    enum class TakeState { empty, recording, ready, playing };
+    /** 試し録り: records the device input (before any processing) for up to kTestTakeMaxSeconds, replacing the old take.
+        Refuses (Japanese whyNot) while the devices are not running or a take is playing. */
+    bool startTestTake (juce::String& whyNot);
+    /** Stops recording (the take keeps what was recorded) or playback. */
+    void stopTestTake();
+    /** Loops the take through the whole path instead of the microphone, so presets and knobs can be tried on it.
+        The virtual mic is silent meanwhile (setOutputMuted) and the monitor is turned on; refuses without a monitor
+        device. Keeps playing across preset changes. A notice with 「止める」 (action "takeStop") shows while it plays. */
+    bool playTestTake (juce::String& whyNot);
+    void clearTestTake();
+    TakeState getTestTakeState() const;
+    float getTestTakeSeconds() const;    // length (while recording: so far)
+    float getTestTakePosition() const;   // playback position, seconds
+    /** Records what goes to the virtual mic into a new WAV in paths::recordingsDir() (written on a background thread).
+        A notice with 「止める」 (action "wavStop") shows while recording. Hotkey "recordToggle". */
+    bool startWavRecording (juce::String& whyNot);
+    void stopWavRecording();
+    bool isWavRecording() const;
+    double getWavRecordingSeconds() const;
+    juce::File getLastWavFile() const;   // the last finished recording (juce::File() = none yet)
+
+    // ---- 声の高さのメーター and 自分の声で音量合わせ (AppController_Analysis.cpp, owner wave8/analysis) ----
+    struct PitchReading { float inputHz = 0.0f, outputHz = 0.0f; }; // 0 = no pitch (quiet or unvoiced)
+    /** Message thread, from a UI timer. Analysis runs only while polled (stops about 1 s after the last call). */
+    PitchReading pollPitch();
+    struct CalibrationState
+    {
+        enum class Phase { idle, recording, analysing, done, failed };
+        Phase phase = Phase::idle;
+        float progress = 0.0f;       // 0..1 within the phase
+        int presetsAdjusted = 0;     // done: built-in presets whose trim now differs from the shipped one
+        juce::String error;          // failed: Japanese
+    };
+    /** Records kCalibrationSeconds of the user's voice, then measures every built-in preset on a background thread and
+        stores Settings::calibratedTrimDb / calibratedAt. Refuses while the devices are not running or already busy. */
+    bool startCalibration (juce::String& whyNot);
+    void cancelCalibration();
+    CalibrationState getCalibrationState() const;
+    /** Back to the shipped trims (clears Settings::calibratedTrimDb). */
+    void clearCalibration();
+    /** The trim the engine uses for the working preset: the calibrated one for a built-in base preset, else its own. */
+    float getEffectiveTrimDb() const;
+
+    // ---- プリセットを混ぜる (AppController_Morph.cpp, owner wave8/morph) ----
+    /** Makes the working preset a blend of two presets (amount 0 = A). Refuses (whyNot) when the blend breaks the chain
+        rules (10 slots, heavy limit, one freeze / looper) or the looper has a recording (E-27). Rebuilds the chain once. */
+    bool beginMorph (const std::string& idA, const std::string& idB, juce::String& whyNot);
+    /** 0 = A .. 1 = B. Live: parameters glide, slots only one side has fade by SlotDef::wet, no chain rebuild.
+        Marks the working preset modified (it can be saved as new; wet is saved with it). */
+    void setMorphAmount (float amount);
+    float getMorphAmount() const;
+    /** False once the chain was rebuilt by anything else (preset load, effect added / removed / moved ...). */
+    bool isMorphing() const;
+    void endMorph();                     // keeps the blend as the working preset
+    /** The two presets of the running blend (for a tool rebuilt mid-blend); false when not morphing. */
+    bool getMorphPresets (std::string& idA, std::string& idB, juce::String& nameA, juce::String& nameB) const;
+
+    // ---- 押している間だけのエフェクト and アプリごとの自動切り替え (AppController_Automation.cpp, owner wave8/automation) ----
+    struct MomentaryRecipe { juce::String id, nameJa; };
+    static std::vector<MomentaryRecipe> getMomentaryRecipes();
+    /** "" = none. Stored in Settings::momentaryRecipes[index]. */
+    void setMomentaryRecipe (int index, const juce::String& recipeId);
+    /** Hotkey "momentary.<index+1>" pressed; the release is polled in tickAutomation (like push-to-talk). */
+    void setMomentaryHeld (int index, bool held);
+    bool isMomentaryHeld (int index) const;
+    /** File name of the program in front, e.g. "VALORANT.exe" ("" = unknown). */
+    juce::String getForegroundProgram() const;
+    /** Programs that have a visible window now (file names, sorted, unique), for the rule editor. */
+    static juce::StringArray listRunningPrograms();
+
     // ================================================================ presets (F-05)
     PresetLibrary& getPresetLibrary() { return *library; }
     const Preset& getCurrentPreset() const { return current; } // working copy including edits
@@ -260,6 +337,10 @@ public:
 private:
     void timerCallback() override;
     void applyEnvironment();
+    // wave 8 (INTERFACES.md §10): each owner's file. tick = every timer tick, shutdown = before the devices close
+    void tickCapture();      void shutdownCapture();      // AppController_Capture.cpp
+    void tickAnalysis();     void shutdownAnalysis();     // AppController_Analysis.cpp
+    void tickAutomation();   void shutdownAutomation();   // AppController_Automation.cpp
     // Detailed settings (INTERFACES.md §7). before == nullptr: apply everything (startup, device reopen).
     void applyAudioSettings (const Settings* before);     // AppController_Audio.cpp, owner wave4/audio
     void applyPlatformSettings (const Settings* before);  // AppController_Platform.cpp, owner wave4/platform
@@ -296,6 +377,7 @@ private:
     std::string currentBaseId;      // the preset it came from
     bool modified = false;
     bool compareHeld = false;       // INTERFACES.md §9.4
+    int chainBuilds = 0;            // +1 on every rebuildChain() (INTERFACES.md §10: morph notices other rebuilds)
     bool micMuted = false, monitorOn = false;
 
     ScaleLayerPitch scalePitch;     // declared before the processor, which points at it
@@ -324,5 +406,10 @@ private:
     float pttTailMs = 0.0f;         // > 0: released, still active for this long
     std::unique_ptr<juce::Logger> logFilter; // logging::FilterLogger in front of the app's logger (logLevel)
     juce::Logger* logTarget = nullptr;
+    // ---- wave 8 state, one struct per owner (INTERFACES.md §10). Declared last: destroyed before the engine parts above.
+    CaptureData capture;            // App/Wave8Capture.h, wave8/capture
+    AnalysisData analysis;          // App/Wave8Analysis.h, wave8/analysis
+    MorphData morph;                // App/Wave8Morph.h, wave8/morph
+    AutomationData automation;      // App/Wave8Automation.h, wave8/automation
 };
 } // namespace koe

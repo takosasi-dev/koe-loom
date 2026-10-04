@@ -6,6 +6,7 @@
 #include "UI/main/GuideTour.h"
 #include "UI/main/Panels.h"
 #include "UI/main/Shell.h"
+#include "UI/main/ToolsView.h"
 #include "UI/main/VoicePage.h"
 #include "UI/main/VoiceView.h"
 
@@ -66,6 +67,7 @@ struct MainComponent::Impl : private juce::ChangeListener, private juce::Timer
         builtLayout = c.getSettings().layoutStyle;
         sound = std::make_unique<SoundboardView> (c, owner);
         settings = std::make_unique<SettingsView> (c, owner);
+        tools = std::make_unique<ToolsView> (c, owner);
         soundBottom = std::make_unique<BottomBar> (c, owner, false);
         voice->setComponentID ("page.voice");
         sound->setComponentID ("page.soundboard");
@@ -77,7 +79,7 @@ struct MainComponent::Impl : private juce::ChangeListener, private juce::Timer
         if (tour != nullptr) tour->toFront (false);
     }
 
-    std::vector<juce::Component*> pages() const { return { voice.get(), sound.get(), settings.get() }; }
+    std::vector<juce::Component*> pages() const { return { voice.get(), sound.get(), settings.get(), tools.get() }; }
 
     void layout()
     {
@@ -137,6 +139,7 @@ struct MainComponent::Impl : private juce::ChangeListener, private juce::Timer
         sound->setVisible (p == Navigator::Page::soundboard);
         soundBottom->setVisible (p == Navigator::Page::soundboard);
         settings->setVisible (p == Navigator::Page::settings);
+        tools->setVisible (p == Navigator::Page::tools);
         header.setPage (p);
         // the header hides on a voice page that draws its own (案 C Mono); only then is a new layout needed
         // (a tour that switches pages places itself afterwards: layout() does not relocate it meanwhile)
@@ -205,6 +208,7 @@ struct MainComponent::Impl : private juce::ChangeListener, private juce::Timer
         voice.reset();
         sound.reset();
         settings.reset();
+        tools.reset();
         soundBottom.reset();
         buildPages();
         layout();
@@ -246,6 +250,7 @@ struct MainComponent::Impl : private juce::ChangeListener, private juce::Timer
     int builtLayout = 0;          // S-03 外観 「画面の配置」 the voice page was built with
     std::unique_ptr<SoundboardView> sound;
     std::unique_ptr<SettingsView> settings;
+    std::unique_ptr<ToolsView> tools;
     std::unique_ptr<BottomBar> soundBottom; // A-S02 has the same bottom bar as S-01
     ToastView toast;
     OverlayHost overlay;
@@ -505,6 +510,165 @@ int renderSnapshots (const juce::File& outputDir)
         shot ("S02-sounds" + t, W, H, [] (MainComponent& m) { m.showPage (Navigator::Page::soundboard); });
         c.updateSettings ([] (Settings& s) { s.soundboardHintShown = false; });
         clearSnapshotSoundboard (c);
+        // wave 8 (INTERFACES.md §10.2): the ツール page, one shot per tool (+ the narrow window for the first)
+        for (int i = 0; i < ToolsView::numTools; ++i)
+        {
+            static const char* ids[] = { "take", "record", "pitch", "morph", "calibrate" };
+            auto showTool = [i] (MainComponent& m)
+            {
+                m.showPage (Navigator::Page::tools);
+                if (auto* v = dynamic_cast<ToolsView*> (findById (&m, "page.tools"))) v->showTool (ToolsView::Tool (i));
+            };
+            shot ("S10-" + juce::String (ids[i]) + t, W, H, showTool);
+            if (i == 0) shot ("S10-" + juce::String (ids[i]) + "-min" + t, w, h, showTool);
+        }
+        // wave8/morph: 混ぜる while blending 魔王 x エイリアン at 40 %, driven through the tool's own controls
+        auto morphing = [&c] (MainComponent& m)
+        {
+            m.showPage (Navigator::Page::tools);
+            if (auto* v = dynamic_cast<ToolsView*> (findById (&m, "page.tools"))) v->showTool (ToolsView::Tool::morph);
+            auto pick = [&m] (const char* id, const char* name)
+            {
+                if (auto* box = dynamic_cast<juce::ComboBox*> (findById (&m, id)))
+                    for (int k = 0; k < box->getNumItems(); ++k)
+                        if (box->getItemText (k) == juce::String::fromUTF8 (name)) box->setSelectedItemIndex (k, juce::sendNotificationSync);
+            };
+            pick ("morph.a", "魔王");
+            pick ("morph.b", "エイリアン");
+            if (auto* b = dynamic_cast<juce::Button*> (findById (&m, "morph.start")); b != nullptr && b->onClick) b->onClick();
+            if (auto* s = dynamic_cast<juce::Slider*> (findById (&m, "morph.amount"))) s->setValue (0.4, juce::sendNotificationSync);
+            c.dispatchPendingMessages();
+        };
+        shot ("S10-morph-active" + t, W, H, morphing);
+        shot ("S10-morph-active-min" + t, w, h, morphing);
+        c.loadPreset ("character-demon-king");
+        // wave8/automation: the S-03 cards 押している間のエフェクト / アプリごとの自動切り替え, found by the search (one set recipe, two rules)
+        {
+            const auto before = c.getSettings();
+            c.updateSettings ([] (Settings& s)
+            {
+                s.momentaryRecipes = { "yamabiko" };
+                s.appSwitchRules = { { "VALORANT.exe", "character-demon-king" }, { "Discord.exe", "natural-asis" } };
+            });
+            for (auto [q, name] : { std::pair { "押している間", "momentary" }, std::pair { "自動切り替え", "appswitch" } })
+                for (const bool narrow : { false, true })
+                    shot ("S03-search-" + juce::String (name) + (narrow ? "-min" : "") + t, narrow ? w : W, narrow ? h : H, [q] (MainComponent& m)
+                    {
+                        m.showSettings (Navigator::SettingsSection::devices);
+                        if (auto* v = dynamic_cast<SettingsView*> (findById (&m, "page.settings"))) v->setSearchText (juce::String::fromUTF8 (q));
+                    });
+            c.updateSettings ([&before] (Settings& s)
+            {
+                s.momentaryRecipes = before.momentaryRecipes;
+                s.appSwitchRules = before.appSwitchRules;
+            });
+        }
+        // wave8/capture: 試し録り with a take (ready / playing) and 録音 (recording / done). No device: the test hook stands in.
+        {
+            CaptureData::assumeDevicesRunningForTests = true;
+            const auto monitorBefore = c.getSettings().monitorDevice;
+            c.updateSettings ([] (Settings& s) { s.monitorDevice = "Headphones"; });
+            auto& vp = c.getProcessorForTests();
+            std::vector<float> in (480), out (480);
+            double phase = 0.0;
+            auto feed = [&] (double seconds)
+            {
+                for (int b = 0; b < int (seconds * vp.getSampleRate() / 480.0); ++b)
+                {
+                    for (auto& x : in) { x = 0.3f * float (std::sin (phase)); phase += 2.0 * juce::MathConstants<double>::pi * 180.0 / vp.getSampleRate(); }
+                    vp.process (in.data(), out.data(), nullptr, 480);
+                }
+            };
+            auto showTool = [] (ToolsView::Tool tool)
+            {
+                return [tool] (MainComponent& m)
+                {
+                    m.showPage (Navigator::Page::tools);
+                    if (auto* v = dynamic_cast<ToolsView*> (findById (&m, "page.tools"))) v->showTool (tool);
+                };
+            };
+            juce::String why;
+            c.startTestTake (why);
+            feed (4.2);
+            c.stopTestTake();
+            shot ("S10-take-ready" + t, W, H, showTool (ToolsView::Tool::take));
+            c.playTestTake (why);
+            feed (1.3);
+            shot ("S10-take-playing" + t, W, H, showTool (ToolsView::Tool::take));
+            shot ("S10-take-playing-min" + t, w, h, showTool (ToolsView::Tool::take));
+            c.clearTestTake();
+            c.startWavRecording (why);
+            feed (3.0);
+            shot ("S10-record-on" + t, W, H, showTool (ToolsView::Tool::record));
+            shot ("S10-record-on-min" + t, w, h, showTool (ToolsView::Tool::record));
+            c.stopWavRecording();
+            shot ("S10-record-done" + t, W, H, showTool (ToolsView::Tool::record));
+            c.updateSettings ([monitorBefore] (Settings& s) { s.monitorDevice = monitorBefore; });
+            CaptureData::assumeDevicesRunningForTests = false;
+        }
+        // wave8/analysis: 声の高さ with readings (a gliding tone through 魔王), 音量合わせ while recording, failed and calibrated
+        {
+            auto showAnalysisTool = [] (MainComponent& m, ToolsView::Tool tool)
+            {
+                m.showPage (Navigator::Page::tools);
+                if (auto* v = dynamic_cast<ToolsView*> (findById (&m, "page.tools"))) v->showTool (tool);
+            };
+            auto pitchLive = [&c, showAnalysisTool] (MainComponent& m)
+            {
+                showAnalysisTool (m, ToolsView::Tool::pitch);
+                auto* timer = dynamic_cast<juce::Timer*> (findById (&m, "tools.pitch"));
+                if (timer == nullptr) return;
+                std::vector<float> in (1600), out (1600);
+                double phase = 0.0;
+                for (int f = 0; f < 300; ++f)
+                {
+                    const bool pause = (f > 95 && f < 125) || (f > 215 && f < 235);
+                    const double hz = 110.0 + 150.0 * (0.5 - 0.5 * std::cos (f * 0.035));
+                    for (auto& v : in)
+                    {
+                        phase += juce::MathConstants<double>::twoPi * hz / c.getProcessorForTests().getSampleRate();
+                        v = pause ? 0.0f : float (0.3 * std::sin (phase));
+                    }
+                    c.getProcessorForTests().process (in.data(), out.data(), nullptr, int (in.size()));
+                    timer->timerCallback();
+                }
+            };
+            shot ("S10-pitch-live" + t, W, H, pitchLive);
+            shot ("S10-pitch-live-min" + t, w, h, pitchLive);
+            AnalysisData::testDevicesRunning = true; // the recording state needs a running input
+            auto takeOf = [&c] (float seconds, float amplitude)
+            {
+                std::vector<float> in (480), out (480);
+                for (int k = 0; k < int (seconds * 100); ++k)
+                {
+                    for (size_t i = 0; i < in.size(); ++i) in[i] = amplitude * float (std::sin (0.03 * double (k * 480 + int (i))));
+                    c.getProcessorForTests().process (in.data(), out.data(), nullptr, int (in.size()));
+                }
+                c.tickForTests();
+            };
+            auto showCalibrate = [showAnalysisTool] (MainComponent& m) { showAnalysisTool (m, ToolsView::Tool::calibrate); };
+            juce::String why;
+            c.startCalibration (why);
+            takeOf (3.6f, 0.2f);
+            shot ("S10-calibrate-recording" + t, W, H, showCalibrate);
+            shot ("S10-calibrate-recording-min" + t, w, h, showCalibrate);
+            takeOf (7.0f, 0.0f); // 3.6 s of tone is enough voice: measuring starts
+            for (int k = 0; k < 3000 && c.getCalibrationState().progress < 0.3f; ++k) juce::Thread::sleep (10);
+            shot ("S10-calibrate-analysing-min" + t, w, h, showCalibrate);
+            c.cancelCalibration();
+            for (int k = 0; k < 3000 && ! c.startCalibration (why); ++k) { juce::Thread::sleep (10); c.tickForTests(); }
+            takeOf (10.6f, 0.0f); // silence: fails with the reason
+            shot ("S10-calibrate-failed-min" + t, w, h, showCalibrate);
+            c.clearCalibration(); // back to idle
+            AnalysisData::testDevicesRunning = false;
+            c.updateSettings ([] (Settings& s)
+            {
+                s.calibratedTrimDb = { { "character-demon-king", -2.5f }, { "character-helium", 1.5f }, { "natural-asis", 0.0f } };
+                s.calibratedAt = "2026-10-04T18:30:00.000+09:00";
+            });
+            shot ("S10-calibrate-done-min" + t, w, h, showCalibrate);
+            c.clearCalibration();
+        }
         for (auto& [section, id] : sections)
             shot ("S03-" + juce::String (id) + t, W, H, [section] (MainComponent& m) { m.showSettings (section); });
         // wave 4: 「詳細な設定」 open, and a search across the sections

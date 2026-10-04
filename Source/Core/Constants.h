@@ -27,6 +27,10 @@ inline constexpr int kPresetSchemaVersion = 1;
 inline constexpr int kPresetMaxBytes = 64 * 1024;
 inline constexpr int kPresetNameMaxChars = 32;
 inline constexpr float kIrMaxSeconds = 10.0f;           // longest impulse response for "convolution" (INTERFACES.md §9.3)
+inline constexpr float kTestTakeMaxSeconds = 15.0f;     // 試し録り: longest take (INTERFACES.md §10)
+inline constexpr float kCalibrationSeconds = 10.0f;     // 自分の声で音量合わせ: how long the user speaks
+inline constexpr int kMomentarySlots = 4;               // 押している間だけのエフェクト: hotkey actions momentary.1..4
+inline constexpr int kMaxAppSwitchRules = 20;           // アプリごとの自動切り替え
 
 // ---- soundboard (A-4, F-06) ----
 inline constexpr int kSoundboardSlots = 12;

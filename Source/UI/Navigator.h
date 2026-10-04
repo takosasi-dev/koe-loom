@@ -12,7 +12,7 @@ class Navigator
 public:
     virtual ~Navigator() = default;
 
-    enum class Page { voice, soundboard, settings };
+    enum class Page { voice, soundboard, settings, tools }; // tools: INTERFACES.md §10.2
     enum class SettingsSection { devices, environment, hotkeys, startup, appearance, advanced, diagnostics };
     enum class HelpTopic { discordSetup, revertMic, licenses };
 

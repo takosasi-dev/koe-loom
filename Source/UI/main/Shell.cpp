@@ -24,6 +24,7 @@ void runNoticeAction (AppController& c, Navigator& nav, const juce::String& id)
     else if (id == "openSetup") nav.showSetupWizard();
     else if (id == "update.apply") c.applyUpdateNow();
     else if (id == "update.openReleases") juce::URL (c.getUpdateState().releaseUrl).launchInDefaultBrowser();
+    else c.performAction (id); // controller actions, e.g. "wavStop" / "takeStop" (INTERFACES.md §10)
 }
 } // namespace
 
@@ -31,10 +32,10 @@ void runNoticeAction (AppController& c, Navigator& nav, const juce::String& id)
 HeaderBar::HeaderBar (AppController& ctl, Navigator& n)
     : c (ctl), nav (n),
       tabVoice (ja ("ボイス"), PillButton::Style::tab), tabSound (ja ("サウンドボード"), PillButton::Style::tab),
-      tabSettings (ja ("設定"), PillButton::Style::tab), mute (ja ("マイクミュート"), PillButton::Style::outline, Icon::mic),
+      tabTools (ja ("ツール"), PillButton::Style::tab), tabSettings (ja ("設定"), PillButton::Style::tab), mute (ja ("マイクミュート"), PillButton::Style::outline, Icon::mic),
       voice (ja ("ボイチェン ON"), PillButton::Style::primary, Icon::power), help (ja ("ヘルプ"), Icon::help, true)
 {
-    for (auto* b : { &tabVoice, &tabSound, &tabSettings })
+    for (auto* b : { &tabVoice, &tabSound, &tabTools, &tabSettings })
     {
         b->setRadioGroupId (1);
         b->setClickingTogglesState (false);
@@ -42,10 +43,13 @@ HeaderBar::HeaderBar (AppController& ctl, Navigator& n)
     }
     tabVoice.setComponentID ("header.tab.voice");
     tabSound.setComponentID ("header.tab.soundboard");
+    tabTools.setComponentID ("header.tab.tools");
+    tabTools.setTooltip (ja ("ツール（試し録り・録音・声の高さ・混ぜる・音量合わせ）"));
     tabSettings.setComponentID ("header.tab.settings");
     help.setComponentID ("header.help");
     tabVoice.onClick = [this] { nav.showPage (Navigator::Page::voice); };
     tabSound.onClick = [this] { nav.showPage (Navigator::Page::soundboard); };
+    tabTools.onClick = [this] { nav.showPage (Navigator::Page::tools); };
     tabSettings.onClick = [this] { nav.showPage (Navigator::Page::settings); };
 
     mute.setPill (true);
@@ -81,6 +85,7 @@ void HeaderBar::setPage (Navigator::Page page)
 {
     tabVoice.setToggleState (page == Navigator::Page::voice, juce::dontSendNotification);
     tabSound.setToggleState (page == Navigator::Page::soundboard, juce::dontSendNotification);
+    tabTools.setToggleState (page == Navigator::Page::tools, juce::dontSendNotification);
     tabSettings.setToggleState (page == Navigator::Page::settings, juce::dontSendNotification);
 }
 
@@ -108,7 +113,7 @@ void HeaderBar::resized()
     const int titleW = textWidth (Theme::ui (compact ? Theme::fontM : Theme::fontL, true), "KoeLoom");
     r.removeFromLeft (titleW + (compact ? Theme::space2 : Theme::space4));
     const int tabH = compact ? Theme::touchMin : Theme::buttonH;
-    for (auto* b : { &tabVoice, &tabSound, &tabSettings })
+    for (auto* b : { &tabVoice, &tabSound, &tabTools, &tabSettings })
     {
         const int w = b->preferredWidth() - (compact ? Theme::space2 : 0);
         b->setBounds (r.removeFromLeft (w).withSizeKeepingCentre (w, tabH));

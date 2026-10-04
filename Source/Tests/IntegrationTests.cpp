@@ -275,9 +275,9 @@ public:
             expect (c.duplicatePreset ("character-helium", id, err));
             c.loadPreset (id);
             expect (c.toggleFavorite (id, err));
-            const auto name = juce::String::fromUTF8 ("テスト声");
-            expect (c.renamePreset (id, name, err));
-            expect (c.getCurrentPreset().name == name);
+            const auto newName = juce::String::fromUTF8 ("テスト声");
+            expect (c.renamePreset (id, newName, err));
+            expect (c.getCurrentPreset().name == newName);
             expect (c.removePreset (id, err));
             expect (! c.isFavorite (id));
             expect (! c.overwriteCurrent (err));

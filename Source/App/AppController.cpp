@@ -87,6 +87,9 @@ AppController::AppController (bool openDevices) : allowDevices (openDevices)
 AppController::~AppController()
 {
     stopTimer();
+    shutdownCapture();   // wave 8 (INTERFACES.md §10): idempotent, shutdown() may have run them already
+    shutdownAnalysis();
+    shutdownAutomation();
     processor.setAuxSource (nullptr);
     processor.setMonitorSink (nullptr);
     if (engine != nullptr) engine->close();
@@ -165,6 +168,9 @@ void AppController::shutdown()
     if (! saveSettings (settings, paths::settingsFile())) logging::write (logging::error, "settings: save failed");
     soundboard->save (paths::soundboardFile());
     cableProbe->stop();
+    shutdownCapture();   // wave 8 (INTERFACES.md §10): finish files and background threads while the devices still run
+    shutdownAnalysis();
+    shutdownAutomation();
     closeDevices();
     if (hotkeys != nullptr) hotkeys->unregisterAll();
     finishUpdateOnQuit(); // §7.4: a ready update replaces the exe when the app quits
@@ -338,8 +344,8 @@ void AppController::openDevicesIfReady()
     soundboard->prepare (rate);
     if (monitorOn && settings.monitorDevice.isNotEmpty())
     {
-        if (const auto err = monitor->open (settings.monitorDevice, rate); err.isEmpty()) monitor->setEnabled (true);
-        else monitorDeviceGone (err);
+        if (const auto monitorErr = monitor->open (settings.monitorDevice, rate); monitorErr.isEmpty()) monitor->setEnabled (true);
+        else monitorDeviceGone (monitorErr);
     }
 }
 
@@ -615,6 +621,7 @@ void AppController::rebuildChain()
     std::vector<SlotDef> buildable;
     for (auto& s : current.chain)
         if (hasEffectFactory (s.type)) buildable.push_back (s);
+    ++chainBuilds;
     processor.requestChain (EffectChain::create (buildable, processor.getSampleRate(), processor.getMaxBlockSize()));
 }
 
@@ -638,8 +645,18 @@ void AppController::applyPresetToEngine (bool rebuild)
         }
         processor.setLayer (i, lp);
     }
-    processor.setTrimDb (current.outputTrimDb);
+    processor.setTrimDb (getEffectiveTrimDb());
     if (rebuild) rebuildChain();
+}
+
+float AppController::getEffectiveTrimDb() const
+{
+    // 自分の声で音量合わせ (INTERFACES.md §10): a measured trim replaces a built-in preset's shipped one. A blend
+    // (プリセットを混ぜる) clears current.builtin and carries its own outputTrimDb.
+    if (current.builtin)
+        if (auto it = settings.calibratedTrimDb.find (juce::String (currentBaseId)); it != settings.calibratedTrimDb.end())
+            return it->second;
+    return current.outputTrimDb;
 }
 
 // ============================================================================ presets
@@ -913,6 +930,7 @@ void AppController::updateSettings (const std::function<void (Settings&)>& chang
     soundboard->setDuckingDb (settings.duckingDb);
     applyAudioSettings (&before);
     applyPlatformSettings (&before);
+    processor.setTrimDb (getEffectiveTrimDb()); // calibratedTrimDb may have changed
     saveSettingsSoon();
     sendChangeMessage();
 }
@@ -1023,6 +1041,20 @@ void AppController::performAction (const juce::String& a)
         const auto action = a == "freezeToggle" ? EffectTrigger::freezeToggle : (a == "looperRecPlay" ? EffectTrigger::looperRecordPlay : EffectTrigger::looperClear);
         for (int i = 0; i < int (current.chain.size()); ++i)
             if (current.chain[size_t (i)].type == type) triggerSlot (i, action);
+    }
+    else if (a == "recordToggle") // wave 8 (INTERFACES.md §10)
+    {
+        juce::String why;
+        if (isWavRecording()) { stopWavRecording(); hotkeyToast (u8 ("録音を止めました")); }
+        else if (startWavRecording (why)) hotkeyToast (u8 ("録音を始めました"));
+        else toast (why);
+    }
+    else if (a == "wavStop") stopWavRecording();   // notice buttons
+    else if (a == "takeStop") stopTestTake();
+    else if (a.startsWith ("momentary."))
+    {
+        const int i = a.fromFirstOccurrenceOf (".", false, false).getIntValue() - 1;
+        if (i >= 0 && i < kMomentarySlots) setMomentaryHeld (i, true);
     }
     else if (a == "show") { if (onShowWindowRequest) onShowWindowRequest(); }
     else if (a == "quit") { if (onQuitRequest) onQuitRequest(); }
@@ -1178,6 +1210,9 @@ void AppController::timerCallback()
         else monitorRetryCountdown = reconnectTicks();
     }
     tickPushToTalk();
+    tickCapture();       // wave 8 (INTERFACES.md §10)
+    tickAnalysis();
+    tickAutomation();
 
     if (saveCountdown > 0 && --saveCountdown == 0)
     {

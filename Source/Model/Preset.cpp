@@ -3,6 +3,7 @@
 #include "Core/Constants.h"
 #include "Effects/EffectRegistry.h"
 
+#include <algorithm>
 #include <charconv>
 #include <cmath>
 #include <cstdlib>
@@ -104,6 +105,14 @@ std::optional<SlotDef> parseSlot (const juce::var& v, int& clamped)
             if (f.isString() && isValidIrFileName (f.toString())) slot->file = f.toString().toStdString();
             else if (! (f.isString() && f.toString().isEmpty())) ++clamped; // folders, "..", wrong type: dropped
         }
+
+    if (const auto& w = v["wet"]; ! w.isVoid())
+    {
+        const bool number = w.isInt() || w.isInt64() || w.isDouble();
+        const float x = number ? float (double (w)) : 1.0f;
+        slot->wet = std::isfinite (x) ? std::clamp (x, 0.0f, 1.0f) : 1.0f;
+        if (! number || slot->wet != x) ++clamped;
+    }
 
     const auto& params = v["params"];
     if (! params.isObject()) return slot;
@@ -348,6 +357,7 @@ juce::String serializePreset (const Preset& preset)
         }
         so->setProperty ("params", juce::var (po));
         if (s.type == "convolution" && ! s.file.empty()) so->setProperty ("file", juce::String::fromUTF8 (s.file.c_str()));
+        if (s.wet < 1.0f) so->setProperty ("wet", s.wet);
         chain.add (juce::var (so));
     }
     o->setProperty ("chain", chain);

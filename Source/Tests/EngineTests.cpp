@@ -586,7 +586,103 @@ public:
     }
 };
 
+/** The wave 8 hooks (INTERFACES.md §10.1): taps, input source, post processor, virtual-mic-only mute, slot wet. */
+class Wave8HookTests : public juce::UnitTest
+{
+public:
+    Wave8HookTests() : juce::UnitTest ("Wave 8 processor hooks", "Engine") {}
+
+    struct Tap final : IAudioTap
+    {
+        std::vector<float> got;
+        void push (const float* x, int n) override { got.insert (got.end(), x, x + n); } // test only: allocates
+    };
+    struct Zeros final : IInputSource
+    {
+        bool on = true;
+        bool render (float* d, int n) override { if (! on) return false; std::fill (d, d + n, 0.0f); return true; }
+    };
+    struct Halve final : IVoicePostProcessor
+    {
+        int calls = 0;
+        void process (float* x, int n) override { ++calls; for (int i = 0; i < n; ++i) x[i] *= 0.5f; }
+    };
+
+    void runTest() override
+    {
+        const auto in = sine (220.0, 1.0, 0.3f);
+        auto fresh = [] (VoiceProcessor& vp) { plainSetup (vp); vp.prepare (kSr, kBlock); };
+
+        beginTest ("input tap sees the device input as it arrives; output tap sees the virtual mic signal");
+        {
+            VoiceProcessor vp;
+            fresh (vp);
+            Tap ti, to;
+            vp.setTap (VoiceProcessor::TapPoint::input, 0, &ti);
+            vp.setTap (VoiceProcessor::TapPoint::output, 1, &to);
+            auto out = render (vp, in);
+            expect (ti.got == in);
+            expect (to.got == out);
+        }
+
+        beginTest ("an input source stands in for the device input; returning false uses the device again");
+        {
+            VoiceProcessor vp;
+            fresh (vp);
+            Zeros z;
+            vp.setInputSource (&z);
+            auto out = render (vp, in);
+            expectLessOrEqual (peakDb (out.data() + int (kSr * 0.5), int (kSr * 0.5)), -100.0f);
+            z.on = false;
+            out = render (vp, in);
+            expectGreaterThan (peakDb (out.data() + int (kSr * 0.5), int (kSr * 0.5)), -20.0f);
+        }
+
+        beginTest ("post processor runs every block on the voice; outputMuted silences only the virtual mic");
+        {
+            VoiceProcessor vp, ref;
+            fresh (vp);
+            fresh (ref);
+            Halve h;
+            vp.setPostProcessor (&h);
+            auto out = render (vp, in);
+            auto base = render (ref, in);
+            expectEquals (h.calls, int ((in.size() + kBlock - 1) / kBlock));
+            const int a = int (kSr * 0.5), n = int (kSr * 0.4);
+            expectWithinAbsoluteError (rmsDb (out.data() + a, n), rmsDb (base.data() + a, n) - 6.02f, 0.1f);
+
+            VoiceProcessor m;
+            fresh (m);
+            Tap to;
+            m.setTap (VoiceProcessor::TapPoint::output, 0, &to);
+            m.setOutputMuted (true);
+            out = render (m, in);
+            expectLessOrEqual (peakDb (out.data() + int (kSr * 0.1), int (kSr * 0.8)), -120.0f);
+            expectGreaterThan (peakDb (to.got.data() + a, n), -20.0f);
+        }
+
+        beginTest ("SlotDef::wet = 0 passes the input through exactly; wet = 1 is the effect");
+        {
+            SlotDef d;
+            d.type = "distortion";
+            d.params.clear();
+            d.wet = 0.0f;
+            auto chain = EffectChain::create ({ d }, kSr, kBlock);
+            expect (chain != nullptr && chain->size() == 1);
+            auto x = in;
+            for (size_t pos = 0; pos < x.size(); pos += kBlock) chain->process (x.data() + pos, int (std::min<size_t> (kBlock, x.size() - pos)));
+            expect (x == in);
+            d.wet = 1.0f;
+            chain = EffectChain::create ({ d }, kSr, kBlock);
+            x = in;
+            for (size_t pos = 0; pos < x.size(); pos += kBlock) chain->process (x.data() + pos, int (std::min<size_t> (kBlock, x.size() - pos)));
+            expect (x != in);
+        }
+    }
+};
+
 static ShifterTests shifterTests;
+static Wave8HookTests wave8HookTests;
 static DynamicsTests dynamicsTests;
 static ProcessorTests processorTests;
 } // namespace koe
