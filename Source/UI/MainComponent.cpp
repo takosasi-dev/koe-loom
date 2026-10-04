@@ -572,6 +572,26 @@ int renderSnapshots (const juce::File& outputDir)
     c.updateSettings ([] (Settings& s) { s.layoutStyle = 0; s.themeId = {}; });
     Theme::clearPalette();
 
+    // wave7/ir: S-09 of a "convolution" slot (file row): a file in use, and a file that is missing
+    paths::irDir().createDirectory();
+    writeSampleWav (paths::irDir().getChildFile (juce::String::fromUTF8 ("ホール.wav")), 1.5, 220.0);
+    for (const bool dark : { true, false })
+    {
+        Theme::setDark (dark);
+        lnf.refreshColours();
+        c.updateSettings ([dark] (Settings& s) { s.darkTheme = dark; });
+        const juce::String t = dark ? "-dark" : "-light";
+        c.loadPreset ("character-demon-king");
+        juce::String why;
+        c.addEffect ("convolution", why);
+        const int irSlot = int (c.getChain().size()) - 1;
+        c.setSlotFileName (irSlot, juce::String::fromUTF8 ("ホール.wav"));
+        shot ("S09-convolution" + t, Theme::defaultWidth, Theme::defaultHeight, [irSlot] (MainComponent& m) { m.showSlotDetail (irSlot); });
+        c.setSlotFileName (irSlot, juce::String::fromUTF8 ("消えた残響.wav"));
+        shot ("S09-convolution-missing" + t, Theme::minWidth, Theme::minHeight, [irSlot] (MainComponent& m) { m.showSlotDetail (irSlot); });
+    }
+    c.loadPreset ("character-demon-king");
+
     juce::LookAndFeel::setDefaultLookAndFeel (nullptr);
     Theme::setDark (wasDark);
     Theme::setVariant (wasAccent, wasTone);

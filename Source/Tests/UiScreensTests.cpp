@@ -510,17 +510,17 @@ public:
                 auto* nb = find<NavButton> (b, juce::String ("presets.cat.") + id);
                 return nb != nullptr ? nb->getCount() : -1;
             };
-            expectEquals (count ("all"), 61);
+            expectEquals (count ("all"), 81);
             expectEquals (count ("natural"), 11);
             expectEquals (count ("character"), 22);
-            expectEquals (count ("device"), 12);
-            expectEquals (count ("space"), 8);
+            expectEquals (count ("device"), 23);
+            expectEquals (count ("space"), 17);
             expectEquals (count ("layered"), 8);
             expectEquals (count ("user"), 0);
             expectEquals (count ("favorites"), 0);
 
             if (auto* all = find<juce::Button> (b, "presets.cat.all")) all->onClick();
-            expectEquals (visibleRows (b).size(), 61);
+            expectEquals (visibleRows (b).size(), 81);
             if (auto* chara = find<juce::Button> (b, "presets.cat.character")) chara->onClick();
             expectEquals (visibleRows (b).size(), 22);
             if (auto* all = find<juce::Button> (b, "presets.cat.all")) all->onClick();

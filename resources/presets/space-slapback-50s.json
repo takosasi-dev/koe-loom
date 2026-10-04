@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "space-slapback-50s",
+  "name": "50年代スラップバック",
+  "chain": [
+    {
+      "type": "echo",
+      "enabled": true,
+      "params": {
+        "mode": "slapback",
+        "timeMs": 110,
+        "feedback": 0.3,
+        "toneHz": 7000,
+        "mix": 0.4
+      }
+    }
+  ],
+  "outputTrimDb": 0
+}

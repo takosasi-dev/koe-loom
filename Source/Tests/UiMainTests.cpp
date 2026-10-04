@@ -264,7 +264,7 @@ private:
                                    "header.help", "tour.presets", "voice.presetSelector", "tour.pitch", "tour.formant", "voice.shifterToggle",
                                    "voice.inputMeter", "tour.outputMeter", "voice.outputDeviceLink", "tour.chain", "chain.slot.0",
                                    "chain.slot.0.toggle", "voice.bottom", "tour.monitor", "voice.monitorToggle", "tour.status",
-                                   "voice.input", "voice.output", "voice.shifter", "voice.layers" };
+                                   "voice.input", "voice.output", "voice.shifter", "voice.layers", "voice.compare", "voice.random" };
         for (auto* id : required)
         {
             auto* comp = visibleById (&mc, id);
@@ -294,7 +294,8 @@ private:
         noOverlap ({ "header.tab.voice", "header.tab.soundboard", "header.tab.settings", "tour.mute", "tour.voiceToggle", "header.help" }, visibleById (&mc, "main.header"));
         noOverlap ({ "tour.pitch", "tour.formant", "voice.shifterToggle" }, visibleById (&mc, "voice.shifter"));
         noOverlap ({ "tour.monitor", "tour.status" }, visibleById (&mc, "voice.bottom"));
-        noOverlap ({ "voice.presetSelector", "voice.fav.0", "voice.fav.1", "voice.fav.2", "voice.fav.3", "voice.fav.more" }, visibleById (&mc, "tour.presets"));
+        noOverlap ({ "voice.presetSelector", "voice.fav.0", "voice.fav.1", "voice.fav.2", "voice.fav.3", "voice.fav.more", "voice.compare", "voice.random" },
+                   visibleById (&mc, "tour.presets"));
 
         // §8.2.1: the slots keep their knobs and ON/OFF even when banners shrink the chain
         if (auto* slot = visibleById (&mc, "chain.slot.0"))
@@ -323,7 +324,7 @@ private:
             for (auto* comp = traverser->getDefaultComponent (&mc); comp != nullptr && seen.insert (comp).second; comp = traverser->getNextComponent (comp)) {}
             for (auto* id : { "tour.voiceToggle", "tour.mute", "header.help", "voice.presetSelector", "voice.fav.0", "voice.fav.more", "tour.pitch",
                               "tour.formant", "voice.shifterToggle", "voice.layer.0.toggle", "voice.inputDevice", "voice.outputDeviceLink",
-                              "chain.slot.0", "chain.slot.0.toggle", "chain.slot.3", "chain.add", "voice.monitorToggle" })
+                              "chain.slot.0", "chain.slot.0.toggle", "chain.slot.3", "chain.add", "voice.monitorToggle", "voice.compare", "voice.random" })
                 expect (seen.count (visibleById (&mc, id)) == 1, label + ": Tab does not reach " + id);
         }
 
@@ -475,7 +476,7 @@ private:
         expect (picker->listedTypes() == std::vector<std::string> { "echo" });
         picker->setSearchText ({});
         picker->setCategory (int (EffectCategory::timeSpace));
-        expect (picker->listedTypes() == std::vector<std::string> { "echo", "reverb" });
+        expect (picker->listedTypes() == std::vector<std::string> { "echo", "reverb", "convolution" }); // convolution: wave7/ir
         picker->setCategory (-1);
         for (auto& info : allEffectInfos())
             if (! hasEffectFactory (info.type))

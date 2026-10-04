@@ -21,6 +21,15 @@
 // mix is equal-power (dry cos, wet sin), since the wet is uncorrelated with the dry.
 // reset() does not wipe the 3 MB of history (that took up to 0.5 ms on the audio thread); reads that
 // would reach samples from before the last reset() return silence instead.
+//
+// Types added in wave 7 (INTERFACES.md §9; digital / tape / reverse produce exactly the same output as v0.2.0).
+// They run in processExtra() and share the line, the time crossfade, the tone low-pass and the ducking:
+//   slapback: nothing is fed back. One bounce at timeMs (through the tone low-pass and a 100 Hz high-pass),
+//             plus a second bounce at 2 x timeMs whose level is `feedback` x 0.6. Never a train of repeats.
+//   analog  : bucket-brigade style. Inside the loop a 4-pole low-pass whose cutoff falls as the time grows
+//             (3.4 kHz at 300 ms, 0.9-6 kHz), a 150 Hz high-pass, two all-passes that smear the transients
+//             and a soft clip; the delay time wobbles slowly (0.5 Hz, +-0.25 %).
+//   multitap: taps at 0.27, 0.46, 0.73 and 1.0 x timeMs; only the last one goes back into the loop.
 
 namespace koe
 {
@@ -46,6 +55,10 @@ public:
         wowAmp = float (0.0025 * sr / (2.0 * 3.14159265358979323846 * 0.8));
         flutterAmp = float (0.0012 * sr / (2.0 * 3.14159265358979323846 * 6.5));
         driftCoeff = dsp::onePoleCoeff (150.0f, sr);
+        slapHp.setHighpass (sr, 100.0f);
+        bbdHp.setHighpass (sr, 150.0f);
+        smear[0].setAllpass (sr, 700.0f, 0.5f);
+        smear[1].setAllpass (sr, 1900.0f, 0.5f);
     }
 
     void reset() override
@@ -69,6 +82,7 @@ public:
         rng.seed (0xEC40u);
         t = 0;
         resetReverse();
+        resetExtra();
         updateMixGains();
     }
 
@@ -77,7 +91,7 @@ public:
         switch (index)
         {
             case 0:
-                pendingMode = std::clamp (int (v), 0, 2);
+                pendingMode = std::clamp (int (v), 0, 5);
                 duck.setTarget (pendingMode == mode ? 1.0f : 0.0f);
                 break;
             case 1: timeMs = v; break;
@@ -100,12 +114,14 @@ public:
                 mode = pendingMode;
                 tapeAmount.setTarget (mode == 1 ? 1.0f : 0.0f);
                 resetReverse();
+                resetExtra();
                 duck.setTarget (1.0f);
             }
             if (sinceTone-- <= 0)
             {
                 toneS = toneTarget + toneCoeff32 * (toneS - toneTarget);
                 tone.setLowpass (sr, toneS);
+                if (mode >= 3) updateExtra();
                 sinceTone = 31;
                 if (rng.nextFloat01() < 0.01f) driftTarget = rng.nextBipolar() * 8.0f; // ~every 0.07 s
             }
@@ -126,6 +142,12 @@ public:
             flutterPhase += 6.5 / sr;
             if (wowPhase >= 1.0) wowPhase -= 1.0;
             if (flutterPhase >= 1.0) flutterPhase -= 1.0;
+            if (mode >= 3)
+            {
+                x[i] = processExtra (in);
+                ++t;
+                continue;
+            }
             const float wobble = ta * (wowAmp * float (std::sin (twoPi * wowPhase)) + flutterAmp * float (std::sin (twoPi * flutterPhase)) + drift);
             float tap = readSinceReset (loop, curDelay - 1.0f + wobble, t);
             if (xfadePos < xfadeLen)
@@ -212,6 +234,85 @@ private:
         }
         return wAsc * rAsc + (1.0f - wAsc) * rDesc;
     }
+
+    // ---- wave 7 types (slapback = 3, analog = 4, multitap = 5) ----
+    float bbdTargetHz() const noexcept { return std::clamp (3400.0f * std::sqrt (300.0f / timeMs), 900.0f, 6000.0f); }
+
+    void resetExtra() noexcept
+    {
+        tone2.reset();
+        tone2.setLowpass (sr, toneS);
+        slapHp.reset();
+        bbdHp.reset();
+        for (auto& f : bbdLp) f.reset();
+        for (auto& f : smear) f.reset();
+        bbdPhase = 0.0;
+        bbdHz = bbdTargetHz();
+        bbdLp[0].setLowpass (sr, bbdHz, 0.5412f);
+        bbdLp[1].setLowpass (sr, bbdHz, 1.3066f);
+    }
+
+    /** Every 32 samples, right after the tone low-pass moved. */
+    void updateExtra() noexcept
+    {
+        tone2.setLowpass (sr, toneS);
+        if (mode == 4)
+        {
+            const float target = bbdTargetHz();
+            bbdHz = target + toneCoeff32 * (bbdHz - target);
+            bbdLp[0].setLowpass (sr, bbdHz, 0.5412f); // 4-pole Butterworth
+            bbdLp[1].setLowpass (sr, bbdHz, 1.3066f);
+        }
+    }
+
+    float processExtra (float in) noexcept
+    {
+        const bool fading = xfadePos < xfadeLen;
+        const float xw = fading ? 0.5f - 0.5f * std::cos (dsp::kPi * (float (xfadePos) + 0.5f) / float (xfadeLen)) : 0.0f;
+        auto rd = [&] (float dCur, float dNext)
+        {
+            float a = readSinceReset (loop, dCur - 1.0f, t);
+            if (fading) a += xw * (readSinceReset (loop, dNext - 1.0f, t) - a);
+            return a;
+        };
+        const float d = duck.next();
+        const float f = fb.next();
+        float wet = 0.0f;
+        if (mode == 3)
+        {
+            const float maxD = float (loop.capacity() - 8);
+            const float first = tone.process (rd (curDelay, nextDelay));
+            const float second = tone2.process (rd (std::min (2.0f * curDelay, maxD), std::min (2.0f * nextDelay, maxD)));
+            loop.push (d * in);
+            wet = slapHp.process (first + 0.6f * f * second);
+        }
+        else if (mode == 4)
+        {
+            bbdPhase += 0.5 / sr;
+            if (bbdPhase >= 1.0) bbdPhase -= 1.0;
+            const float wob = 0.0025f * curDelay * float (std::sin (2.0 * 3.14159265358979323846 * bbdPhase));
+            float rep = tone.process (rd (curDelay + wob, nextDelay + wob));
+            rep = bbdHp.process (bbdLp[1].process (bbdLp[0].process (rep)));
+            rep = smear[1].process (smear[0].process (rep));
+            rep = dcBlock.process (std::tanh (1.5f * rep) * (1.0f / 1.5f));
+            loop.push (d * in + f * rep);
+            wet = rep;
+        }
+        else
+        {
+            static constexpr float frac[3] = { 0.27f, 0.46f, 0.73f }, gain[3] = { 0.32f, 0.42f, 0.35f };
+            for (int k = 0; k < 3; ++k) wet += gain[k] * rd (curDelay * frac[k], nextDelay * frac[k]);
+            const float rep = dcBlock.process (tone.process (rd (curDelay, nextDelay)));
+            loop.push (d * in + f * rep);
+            wet += 0.56f * rep; // tap levels: the four together sit near the dry level, like one digital repeat
+        }
+        if (fading && ++xfadePos == xfadeLen) curDelay = nextDelay;
+        return dryGain * in + wetGain * d * wet;
+    }
+
+    dsp::Biquad tone2, slapHp, bbdHp, bbdLp[2], smear[2];
+    double bbdPhase = 0.0;
+    float bbdHz = 3400.0f;
 
     double sr = 48000.0, wowPhase = 0.0, flutterPhase = 0.0;
     int mode = 0, pendingMode = 0;

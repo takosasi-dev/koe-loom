@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "space-limestone-cave",
+  "name": "鍾乳洞の奥",
+  "chain": [
+    {
+      "type": "reverb",
+      "enabled": true,
+      "params": {
+        "type": "cave",
+        "room": 0.8,
+        "damp": 0.5,
+        "preDelayMs": 0,
+        "mix": 0.45
+      }
+    }
+  ],
+  "outputTrimDb": 0
+}

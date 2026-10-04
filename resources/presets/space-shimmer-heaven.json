@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "space-shimmer-heaven",
+  "name": "天使のきらめき（シマー）",
+  "chain": [
+    {
+      "type": "reverb",
+      "enabled": true,
+      "params": {
+        "type": "shimmer",
+        "room": 0.75,
+        "damp": 0.3,
+        "preDelayMs": 20,
+        "mix": 0.45
+      }
+    }
+  ],
+  "outputTrimDb": 0
+}

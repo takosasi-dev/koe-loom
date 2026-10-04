@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "space-tiled-bathroom",
+  "name": "タイル張りの浴室",
+  "chain": [
+    {
+      "type": "reverb",
+      "enabled": true,
+      "params": {
+        "type": "bathroom",
+        "room": 0.4,
+        "damp": 0.2,
+        "preDelayMs": 0,
+        "mix": 0.4
+      }
+    }
+  ],
+  "outputTrimDb": 0
+}

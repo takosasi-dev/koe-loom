@@ -51,6 +51,9 @@ public:
     int numChoices() const;
     /** The control of parameter p (a Knob or a ComboBox), for tests. */
     juce::Component* controlFor (int paramIndex) const;
+    /** "convolution" only (INTERFACES.md §9.3): the line under the file row, e.g. ファイルが見つかりません（x.wav）. */
+    juce::String fileStatusText() const;
+    bool fileStatusIsWarning() const;
 
 private:
     struct Cell
@@ -75,5 +78,13 @@ private:
     std::unique_ptr<PillButton> action1, action2;
     int uiState = -1;
     juce::Rectangle<int> descArea, footerText;
+    // "convolution": ファイルを選ぶ… / the ir folder list / フォルダを開く, and the status line (INTERFACES.md §9.3)
+    void pickIrFile();
+    void refreshIrList();
+    std::unique_ptr<PillButton> chooseFile, openFolder;
+    std::unique_ptr<juce::ComboBox> irList;
+    std::unique_ptr<juce::FileChooser> chooser;
+    juce::String shownFile;
+    juce::Rectangle<int> fileStatus;
 };
 } // namespace koe::ui::mainui

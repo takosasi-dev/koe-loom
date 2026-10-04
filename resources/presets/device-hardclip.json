@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "device-hardclip",
+  "name": "ハードクリップ声",
+  "chain": [
+    {
+      "type": "distortion",
+      "enabled": true,
+      "params": {
+        "shape": "hardclip",
+        "driveDb": 20,
+        "toneHz": 5000,
+        "mix": 0.7
+      }
+    }
+  ],
+  "outputTrimDb": 1.5
+}

@@ -30,6 +30,7 @@ struct SlotDef
     std::string type;          // koeloom_effects.md §2 type
     bool enabled = true;
     std::vector<float> params; // one per ParamSpec, in registry order, spec units, choice = index
+    std::string file;          // "convolution" only: a file name inside paths::irDir(), no folders (INTERFACES.md §9). JSON key "file", optional
 
     bool operator== (const SlotDef&) const = default;
 };

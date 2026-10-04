@@ -26,6 +26,7 @@ inline constexpr int kMaxEffectParams = 12;             // largest effect (vocod
 inline constexpr int kPresetSchemaVersion = 1;
 inline constexpr int kPresetMaxBytes = 64 * 1024;
 inline constexpr int kPresetNameMaxChars = 32;
+inline constexpr float kIrMaxSeconds = 10.0f;           // longest impulse response for "convolution" (INTERFACES.md §9.3)
 
 // ---- soundboard (A-4, F-06) ----
 inline constexpr int kSoundboardSlots = 12;

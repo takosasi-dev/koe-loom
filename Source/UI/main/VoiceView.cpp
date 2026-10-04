@@ -45,6 +45,147 @@ void fillCombo (juce::ComboBox& box, const juce::StringArray& names, juce::Strin
     box.setSelectedId (names.indexOf (selected) + 1, juce::dontSendNotification);
 }
 
+// =============================================================================================== 聞き比べ / おまかせ (§9.4)
+/** A die showing five (Icons.h has no dice): rounded square outline and five pips, fitted into area. */
+void drawDice (juce::Graphics& g, juce::Rectangle<float> area, juce::Colour ink)
+{
+    const float s = juce::jmin (area.getWidth(), area.getHeight());
+    const auto box = area.withSizeKeepingCentre (s, s).reduced (s * 0.1f);
+    g.setColour (ink);
+    g.drawRoundedRectangle (box, s * 0.18f, juce::jmax (1.5f, s * 0.09f));
+    const float d = s * 0.17f;
+    for (auto [fx, fy] : { std::pair (0.28f, 0.28f), std::pair (0.72f, 0.28f), std::pair (0.5f, 0.5f), std::pair (0.28f, 0.72f), std::pair (0.72f, 0.72f) })
+        g.fillEllipse (box.getX() + box.getWidth() * fx - d / 2, box.getY() + box.getHeight() * fy - d / 2, d, d);
+}
+
+class ExtraButton : public juce::Button, private juce::Timer
+{
+public:
+    enum class Kind { compare, random };
+    ExtraButton (Kind k, AppController& ctl) : juce::Button (k == Kind::compare ? "compare" : "random"), kind (k), c (ctl)
+    {
+        setWantsKeyboardFocus (true);
+        setComponentID (k == Kind::compare ? "voice.compare" : "voice.random");
+        setTitle (k == Kind::compare ? ja ("聞き比べ（押している間だけ元の声）") : ja ("おまかせ（ランダムな声を作る）"));
+        setTooltip (k == Kind::compare ? ja ("押している間だけ、変換しない元の声になります（スペースキーでも）。ボイチェン OFF のときは使えません")
+                                       : ja ("おまかせ：ピッチ・フォルマント・エフェクトをランダムに組んだ声を作ります（気に入ったら保存）"));
+    }
+    ~ExtraButton() override { setHeld (false); }
+
+    int preferredWidth (int h) const
+    {
+        if (kind == Kind::random && ! showText) return h;
+        const auto f = Theme::ui (fontSize, true);
+        const int textW = kind == Kind::compare ? juce::jmax (textWidth (f, ja ("聞き比べ")), textWidth (f, ja ("元の声"))) : textWidth (f, ja ("おまかせ"));
+        return textW + 18 + 6 + Theme::space3 * 2 - 2;
+    }
+
+    /** Compare only: true sends setCompareHold (true) unless the button is disabled (voice changer OFF). */
+    void setHeld (bool h)
+    {
+        if ((h && (kind != Kind::compare || ! isEnabled())) || held == h) return;
+        held = h;
+        heldByKey = heldByKey && h;
+        c.setCompareHold (h);
+        if (h) startTimerHz (10);
+        else stopTimer();
+        repaint();
+    }
+    /** The controller released it (preset load): follow without calling back. */
+    void syncFromController()
+    {
+        if (! held || c.isCompareHeld()) return;
+        held = heldByKey = false;
+        stopTimer();
+        repaint();
+    }
+
+    void mouseDown (const juce::MouseEvent& e) override
+    {
+        juce::Button::mouseDown (e);
+        if (kind == Kind::compare) setHeld (true);
+    }
+    void mouseUp (const juce::MouseEvent& e) override
+    {
+        juce::Button::mouseUp (e);
+        if (kind == Kind::compare && ! heldByKey) setHeld (false);
+    }
+    bool keyPressed (const juce::KeyPress& k) override
+    {
+        if (! k.isKeyCode (juce::KeyPress::spaceKey)) return juce::Button::keyPressed (k);
+        if (kind == Kind::random) triggerClick();
+        else if (! held)
+        {
+            setHeld (true);
+            heldByKey = held;
+        }
+        return true;
+    }
+    bool keyStateChanged (bool keyDown) override
+    {
+        if (heldByKey && ! juce::KeyPress::isKeyCurrentlyDown (juce::KeyPress::spaceKey))
+        {
+            setHeld (false);
+            return true;
+        }
+        return juce::Button::keyStateChanged (keyDown);
+    }
+    void focusLost (FocusChangeType t) override
+    {
+        setHeld (false); // the window lost focus (or focus moved on)
+        juce::Button::focusLost (t);
+    }
+
+    void paintButton (juce::Graphics& g, bool highlighted, bool down) override
+    {
+        const auto& p = P();
+        const auto r = getLocalBounds().toFloat().reduced (1.0f);
+        const auto fill = held ? p.accent : (highlighted || down ? p.raised : juce::Colours::transparentBlack);
+        const auto ink = held ? p.onAccent : p.text;
+        if (! fill.isTransparent())
+        {
+            g.setColour (fill);
+            g.fillRoundedRectangle (r, Theme::radiusM);
+        }
+        if (! held)
+        {
+            g.setColour (p.border);
+            g.drawRoundedRectangle (r.reduced (0.75f), Theme::radiusM, Theme::borderWidth);
+        }
+        const auto label = kind == Kind::random ? (showText ? ja ("おまかせ") : juce::String()) : (held ? ja ("元の声") : ja ("聞き比べ"));
+        const auto f = Theme::ui (fontSize, true);
+        const float iconW = juce::jmin (18.0f, r.getHeight() - 8.0f), textW = label.isEmpty() ? 0.0f : float (textWidth (f, label));
+        float x = r.getCentreX() - (iconW + (textW > 0.0f ? 6.0f + textW : 0.0f)) * 0.5f;
+        const juce::Rectangle<float> iconArea (x, r.getCentreY() - iconW * 0.5f, iconW, iconW);
+        if (kind == Kind::random) drawDice (g, iconArea, ink);
+        else drawIcon (g, Icon::mic, iconArea, ink, held ? 2.4f : 2.0f);
+        x += iconW + 6.0f;
+        if (textW > 0.0f)
+        {
+            g.setColour (ink);
+            g.setFont (f);
+            g.drawText (label, juce::Rectangle<float> (x, r.getY(), textW + 2.0f, r.getHeight()), juce::Justification::centredLeft);
+        }
+        if (! isEnabled())
+        {
+            g.setColour (p.bg.withAlpha (0.55f));
+            g.fillRoundedRectangle (r, Theme::radiusM);
+        }
+        if (hasKeyboardFocus (true)) drawFocusRing (g, r, Theme::radiusM);
+    }
+
+    const Kind kind;
+    bool held = false, heldByKey = false, showText = true;
+    float fontSize = Theme::fontS;
+
+private:
+    void timerCallback() override
+    {
+        if (! juce::Process::isForegroundProcess()) setHeld (false); // another app took the focus
+    }
+    AppController& c;
+};
+
 // =============================================================================================== preset bar
 class PresetSelector : public juce::Button
 {
@@ -82,9 +223,10 @@ public:
     PresetBar (AppController& ctl, Navigator& n)
         : c (ctl), nav (n), list (ja ("一覧"), PillButton::Style::outline), save (ja ("保存"), PillButton::Style::outline),
           dup (ja ("複製"), PillButton::Style::outline), more (juce::String::fromUTF8 ("\xe2\x80\xa6"), PillButton::Style::outline),
-          moreFavs ("+0", true)
+          moreFavs ("+0", true), extras (ctl, n)
     {
         setComponentID ("tour.presets");
+        addAndMakeVisible (extras); // §9.4: 聞き比べ / おまかせ at the bar's right end
         selector.setComponentID ("voice.presetSelector");
         selector.onClick = [this] { showPresetMenu(); };
         addAndMakeVisible (selector);
@@ -153,6 +295,7 @@ public:
         save.setVisible (! compact);
         dup.setVisible (! compact);
         more.setVisible (compact);
+        extras.setStyle (false, false, compact ? Theme::fontXS : Theme::fontS);
         resized();
     }
 
@@ -171,7 +314,14 @@ public:
             b->setBounds (r.removeFromLeft (b->preferredWidth()).withSizeKeepingCentre (b->preferredWidth(), bh));
             r.removeFromLeft (Theme::space2);
         }
-        if (more.isVisible()) more.setBounds (r.removeFromRight (Theme::touchMin).withSizeKeepingCentre (Theme::touchMin, Theme::touchMin));
+        if (more.isVisible())
+        {
+            more.setBounds (r.removeFromRight (Theme::touchMin).withSizeKeepingCentre (Theme::touchMin, Theme::touchMin));
+            r.removeFromRight (Theme::space2);
+        }
+        const int ew = extras.preferredWidth (bh);
+        extras.setBounds (r.removeFromRight (ew).withSizeKeepingCentre (ew, bh));
+        r.removeFromRight (Theme::space2);
         dividerX = r.getX() + Theme::space1;
         r.removeFromLeft (Theme::space2 + 1 + Theme::space1);
         starArea = r.removeFromLeft (compact ? 16 : 16 + Theme::space1 + textWidth (Theme::ui (Theme::fontXS), ja ("お気に入り")) + 2);
@@ -286,6 +436,7 @@ private:
     PillButton list, save, dup, more;
     juce::OwnedArray<ChipButton> chips;
     LinkButton moreFavs;
+    VoiceExtras extras;
     juce::Label empty;
     juce::String favSig;
     juce::Rectangle<int> labelArea, starArea;
@@ -1215,6 +1366,78 @@ private:
 } // namespace
 
 // =============================================================================================== BottomBar
+// =============================================================================================== VoiceExtras
+struct VoiceExtras::Impl : private juce::ChangeListener
+{
+    Impl (AppController& ctl, Navigator& n)
+        : c (ctl), nav (n), compare (ExtraButton::Kind::compare, ctl), random (ExtraButton::Kind::random, ctl)
+    {
+        random.onClick = [this]
+        {
+            juce::String why;
+            if (c.randomizeCurrent (uint32_t (juce::Random::getSystemRandom().nextInt()), why))
+                nav.showToast (ja ("おまかせで声を作りました。気に入ったら「保存」で残せます。"));
+            else nav.showToast (why);
+        };
+        c.addChangeListener (this);
+        sync();
+    }
+    ~Impl() override { c.removeChangeListener (this); }
+
+    void sync()
+    {
+        compare.setEnabled (c.isVoiceChangerOn()); // a disabled button cannot start a hold
+        if (! c.isVoiceChangerOn()) compare.setHeld (false);
+        compare.syncFromController();
+    }
+    void changeListenerCallback (juce::ChangeBroadcaster*) override { sync(); }
+
+    AppController& c;
+    Navigator& nav;
+    ExtraButton compare, random;
+    bool vertical = false;
+};
+
+VoiceExtras::VoiceExtras (AppController& c, Navigator& nav) : impl (std::make_unique<Impl> (c, nav))
+{
+    addAndMakeVisible (impl->compare);
+    addAndMakeVisible (impl->random);
+}
+
+VoiceExtras::~VoiceExtras() = default;
+
+void VoiceExtras::setStyle (bool vertical, bool randomText, float fontSize)
+{
+    impl->vertical = vertical;
+    impl->random.showText = randomText;
+    impl->compare.fontSize = impl->random.fontSize = fontSize;
+    resized();
+    repaint();
+}
+
+int VoiceExtras::preferredWidth (int height) const
+{
+    auto& i = *impl;
+    if (i.vertical) return juce::jmax (i.compare.preferredWidth (height), i.random.preferredWidth (height));
+    return i.compare.preferredWidth (height) + Theme::space2 + i.random.preferredWidth (height);
+}
+
+void VoiceExtras::resized()
+{
+    auto& i = *impl;
+    auto r = getLocalBounds();
+    if (i.vertical)
+    {
+        const int h = (r.getHeight() - Theme::space2) / 2;
+        i.compare.setBounds (r.removeFromTop (h));
+        i.random.setBounds (r.removeFromBottom (h));
+        return;
+    }
+    i.random.setBounds (r.removeFromRight (juce::jmin (r.getWidth() / 2, i.random.preferredWidth (r.getHeight()))));
+    r.removeFromRight (Theme::space2);
+    i.compare.setBounds (r);
+}
+
 struct BottomBar::Impl
 {
     Impl (AppController& ctl, Navigator& n) : c (ctl), monitor (ctl, n) {}

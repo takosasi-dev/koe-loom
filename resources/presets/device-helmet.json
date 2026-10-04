@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "device-helmet",
+  "name": "宇宙服のヘルメット",
+  "chain": [
+    {
+      "type": "voicechar",
+      "enabled": true,
+      "params": {
+        "kind": "helmet",
+        "intensity": 0.85,
+        "mix": 1
+      }
+    }
+  ],
+  "outputTrimDb": 0
+}

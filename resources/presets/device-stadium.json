@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "device-stadium",
+  "name": "スタジアムの場内放送",
+  "chain": [
+    {
+      "type": "voicechar",
+      "enabled": true,
+      "params": {
+        "kind": "stadium",
+        "intensity": 0.9,
+        "mix": 1
+      }
+    }
+  ],
+  "outputTrimDb": 0
+}

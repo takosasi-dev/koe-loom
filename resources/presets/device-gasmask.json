@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "id": "device-gasmask",
+  "name": "ガスマスク",
+  "chain": [
+    {
+      "type": "compressor",
+      "enabled": true,
+      "params": {
+        "thresholdDb": -24,
+        "ratio": 3,
+        "attackMs": 10,
+        "releaseMs": 120,
+        "makeupDb": 2
+      }
+    },
+    {
+      "type": "voicechar",
+      "enabled": true,
+      "params": {
+        "kind": "gasmask",
+        "intensity": 0.9,
+        "mix": 1
+      }
+    }
+  ],
+  "outputTrimDb": 0
+}

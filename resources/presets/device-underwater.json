@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "device-underwater",
+  "name": "水中でしゃべる声",
+  "chain": [
+    {
+      "type": "voicechar",
+      "enabled": true,
+      "params": {
+        "kind": "underwater",
+        "intensity": 0.9,
+        "mix": 1
+      }
+    }
+  ],
+  "outputTrimDb": 0
+}

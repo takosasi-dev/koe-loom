@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "id": "device-transistor",
+  "name": "トランジスタアンプ",
+  "chain": [
+    {
+      "type": "eq",
+      "enabled": true,
+      "params": {
+        "hpfHz": 150
+      }
+    },
+    {
+      "type": "saturator",
+      "enabled": true,
+      "params": {
+        "mode": "transistor",
+        "driveDb": 12,
+        "toneHz": 7000,
+        "mix": 1
+      }
+    }
+  ],
+  "outputTrimDb": 0
+}

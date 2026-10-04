@@ -93,7 +93,9 @@ private:
                                                     "chain.slot.0.toggle", "voice.bottom", "tour.monitor", "voice.monitorToggle", "tour.status",
                                                     "voice.input", "voice.output", "voice.shifter", "voice.layers",
                                                     // the page's own header (§8.3: 案 C)
-                                                    "tour.mute", "tour.voiceToggle", "mono.settings", "mono.help", "mono.soundboard" };
+                                                    "tour.mute", "tour.voiceToggle", "mono.settings", "mono.help", "mono.soundboard",
+                                                    // 聞き比べ / おまかせ (INTERFACES.md §9.4)
+                                                    "voice.compare", "voice.random" };
 
     static std::vector<juce::Point<int>> sizes()
     {
@@ -164,7 +166,7 @@ private:
                     expect (! rects[i].second.intersects (rects[j].second), label + ": " + rects[i].first + " overlaps " + rects[j].first);
         };
         group ({ "main.notices", "tour.presets", "tour.voiceToggle", "tour.mute", "voice.input", "voice.output", "voice.shifter", "voice.layers",
-                 "tour.chain", "voice.bottom", "mono.settings", "mono.help", "mono.soundboard" }, nullptr);
+                 "tour.chain", "voice.bottom", "mono.settings", "mono.help", "mono.soundboard", "voice.compare", "voice.random" }, nullptr);
         group ({ "tour.pitch", "tour.formant" }, shown (&mc, "voice.shifter"));
         group ({ "tour.monitor", "tour.status" }, shown (&mc, "voice.bottom"));
         group ({ "voice.inputMeter", "voice.inputDevice" }, shown (&mc, "voice.input"));
@@ -207,7 +209,7 @@ private:
             for (auto* comp = traverser->getDefaultComponent (&mc); comp != nullptr && seen.insert (comp).second; comp = traverser->getNextComponent (comp)) {}
             for (auto* id : { "tour.voiceToggle", "tour.mute", "mono.settings", "mono.help", "mono.soundboard", "mono.pitch.plus", "mono.pitch.slider",
                               "voice.shifterToggle", "voice.layer.0", "voice.layer.0.toggle", "voice.inputDevice", "voice.outputDeviceLink", "chain.slot.0",
-                              "chain.slot.0.toggle", "chain.slot.0.down", "chain.add", "voice.monitorToggle" })
+                              "chain.slot.0.toggle", "chain.slot.0.down", "chain.add", "voice.monitorToggle", "voice.compare", "voice.random" })
                 expect (seen.count (shown (&mc, id)) == 1, label + ": Tab does not reach " + id);
         }
 

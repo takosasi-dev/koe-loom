@@ -217,7 +217,7 @@ void runSoak (juce::UnitTest& ut, double totalSeconds, bool longRun)
     std::vector<juce::String> presetIds;
     for (auto& p : c.getPresetLibrary().all())
         if (p.builtin) presetIds.push_back (juce::String (p.id));
-    ut.expectEquals (int (presetIds.size()), 61);
+    ut.expectEquals (int (presetIds.size()), 81);
     juce::String why;
     for (size_t i = 0; i < presetIds.size(); i += 7) c.toggleFavorite (presetIds[i].toStdString(), why);
     std::vector<std::string> types;
@@ -227,7 +227,7 @@ void runSoak (juce::UnitTest& ut, double totalSeconds, bool longRun)
     // ---- schedule ----
     SoakInput input;
     input.cycle = std::min (600.0, totalSeconds / 3.0);
-    const double presetEvery = longRun ? 30.0 : totalSeconds / 64.0;
+    const double presetEvery = longRun ? 30.0 : totalSeconds / double (presetIds.size() + 3); // 64 for the original 61
     const double actionEvery = longRun ? 1.0 : 0.5;
     const double bucketSeconds = longRun ? 3600.0 : totalSeconds / 3.0;
     const double warmupSeconds = longRun ? 600.0 : totalSeconds * 0.1;

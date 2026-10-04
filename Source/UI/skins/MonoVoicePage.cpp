@@ -92,7 +92,7 @@ public:
         : c (ctl), nav (n), sidebar (ctl, n), picker (ctl, n), voice (ctl), mute (ctl), input (ctl, n, false), output (ctl, n, true),
           shifter (ctl), layers (ctl, n), rack (ctl, n), bottom (ctl, n, true),
           settings (ja ("設定"), PillButton::Style::outline), help (ja ("ヘルプ"), PillButton::Style::outline, Icon::help),
-          sound (ja ("音源"), PillButton::Style::outline, Icon::speaker)
+          sound (ja ("音源"), PillButton::Style::outline, Icon::speaker), extras (ctl, n)
     {
         setComponentID ("voice.view");
         settings.setComponentID ("mono.settings");
@@ -107,7 +107,7 @@ public:
         bottom.setComponentID ("voice.bottom");
         bottom.setCompact (true); // monitor switch + 遅延 / XRUN / CPU fit the narrower body (the volume is behind 「モニター」)
         for (auto* comp : std::initializer_list<juce::Component*> { &sidebar, &picker, &voice, &mute, &input, &output, &shifter, &layers, &rack,
-                                                                    &bottom, &settings, &help, &sound })
+                                                                    &bottom, &settings, &help, &sound, &extras })
             addAndMakeVisible (comp);
         applyCompact();
         refresh();
@@ -200,6 +200,7 @@ private:
         layers.setCompact (compact);
         rack.setCompact (compact);
         for (auto* b : { &settings, &help, &sound }) b->setFontSize (compact ? Theme::fontXS : Theme::fontS);
+        extras.setStyle (! compact, ! compact, compact ? Theme::fontXS : Theme::fontS); // §9.4: a column by the mute (wide), the header row (narrow)
     }
 
     void layoutWide (juce::Rectangle<int> r)
@@ -226,6 +227,8 @@ private:
         voice.setBounds (top.removeFromLeft (kVoiceW));
         top.removeFromLeft (Theme::space3);
         mute.setBounds (top.removeFromLeft (kMuteW));
+        top.removeFromLeft (Theme::space3);
+        extras.setBounds (top.removeFromLeft (extras.preferredWidth (Theme::buttonH)).withSizeKeepingCentre (extras.preferredWidth (Theme::buttonH), top.getHeight()));
         top.removeFromLeft (Theme::space4);
         layoutMeters (top, false);
         m.removeFromTop (Theme::space3);
@@ -252,6 +255,9 @@ private:
             b->setBounds (row1.removeFromRight (w).withSizeKeepingCentre (w, Theme::touchMin));
             row1.removeFromRight (Theme::space2);
         }
+        const int ew = extras.preferredWidth (Theme::touchMin);
+        extras.setBounds (row1.removeFromRight (ew).withSizeKeepingCentre (ew, Theme::touchMin));
+        row1.removeFromRight (Theme::space2);
         logoArea = row1.removeFromLeft (Theme::space4 + Theme::space2 + 2 + textWidth (Theme::ui (Theme::fontM, true), "KoeLoom"));
         row1.removeFromLeft (Theme::space3);
         const int pw = juce::jmin (row1.getWidth(), Theme::space5 * 8);
@@ -319,6 +325,7 @@ private:
     ChainRack rack;
     BottomBar bottom;
     PillButton settings, help, sound;
+    VoiceExtras extras;
     juce::Rectangle<int> sideArea, logoArea;
 };
 } // namespace

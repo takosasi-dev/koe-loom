@@ -383,7 +383,7 @@ AppController::Meters AppController::pollMeters()
 void AppController::setVoiceChangerOn (bool on)
 {
     settings.voiceChangerOn = on;
-    processor.setVoiceChangerOn (on);
+    processor.setVoiceChangerOn (on && ! compareHeld); // §9.4: OFF while 聞き比べ is held
     saveSettingsSoon();
     sendChangeMessage();
 }
@@ -641,6 +641,7 @@ void AppController::loadPreset (const std::string& id, bool fromHotkey)
         toast (u8 ("ルーパーに録音があるため、プリセットを切り替えません。")); // E-27
         return;
     }
+    setCompareHold (false); // §9.4: a preset change releases 聞き比べ
     current = *p;
     currentBaseId = id;
     modified = false;
@@ -774,7 +775,7 @@ void AppController::applyEnvironment()
     processor.setNoiseSuppression (settings.noiseSuppressionOn, settings.noiseMix);
     processor.setGate (settings.gateOn, settings.gateThresholdDb, settings.gateAttackMs, settings.gateHoldMs, settings.gateReleaseMs);
     processor.setOutputGainDb (settings.outputGainDb);
-    processor.setVoiceChangerOn (settings.voiceChangerOn);
+    processor.setVoiceChangerOn (settings.voiceChangerOn && ! compareHeld); // §9.4
     applyMicMute();
     monitor->setVolumeDb (settings.monitorVolumeDb);
     applyAudioSettings (nullptr);

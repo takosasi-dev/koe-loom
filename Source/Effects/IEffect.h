@@ -6,6 +6,7 @@
 // KOE_REGISTER_EFFECT so no central file has to name them.
 
 #include <memory>
+#include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -79,6 +80,10 @@ public:
     virtual void trigger (EffectTrigger) {}
     /** Small UI-visible state, e.g. looper state 0..3, freeze on/off. Read from the UI thread (atomic inside). */
     virtual int getUiState() const { return 0; }
+    /** Effects that use a file (convolution, INTERFACES.md §9). Message thread, after prepare() and before reset();
+        may allocate and read the file. Empty path = no file. A missing or unreadable file must leave the effect
+        passing its input through (and getUiState() may report it). */
+    virtual void setAssetPath (const std::string& /*utf8Path*/) {}
 };
 
 using EffectFactory = std::unique_ptr<IEffect> (*)();

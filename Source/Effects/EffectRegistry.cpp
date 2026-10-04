@@ -81,14 +81,15 @@ std::vector<EffectInfo> buildInfos()
                      { "depth", "動く幅", 0, 1, 0.5f, "" },
                      { "mix", "ミックス", 0, 1, 1, "" } } });
 
-    v.push_back ({ "saturator", "サチュレーター", C::distortion, W::light, 2, "テープや真空管のような、やわらかい飽和",
-                   { { "mode", "タイプ", 0, 1, 0, "", { { "tape", "テープ" }, { "tube", "真空管" } } },
+    v.push_back ({ "saturator", "サチュレーター", C::distortion, W::light, 2, "テープ、真空管、トランジスタのような飽和。テープの劣化は、ゆれと高域の傷みも加える",
+                   { { "mode", "タイプ", 0, 3, 0, "", { { "tape", "テープ" }, { "tube", "真空管" }, { "transistor", "トランジスタ" }, { "tapewear", "テープの劣化" } } },
                      { "driveDb", "ドライブ", 0, 24, 6, "dB" },
                      { "toneHz", "トーン（ローパス）", 1000, 16000, 8000, "Hz" },
                      { "mix", "ミックス", 0, 1, 1, "" } } });
 
-    v.push_back ({ "distortion", "ディストーション", C::distortion, W::light, 2, "オーバードライブ、ディストーション、ファズの3タイプ",
-                   { { "shape", "タイプ", 0, 2, 1, "", { { "overdrive", "オーバードライブ" }, { "distortion", "ディストーション" }, { "fuzz", "ファズ" } } },
+    v.push_back ({ "distortion", "ディストーション", C::distortion, W::light, 2, "オーバードライブ、ディストーション、ファズ、整流（1オクターブ上の倍音）、ハードクリップ、ウェーブフォルダーの6タイプ",
+                   { { "shape", "タイプ", 0, 5, 1, "", { { "overdrive", "オーバードライブ" }, { "distortion", "ディストーション" }, { "fuzz", "ファズ" },
+                                                         { "rectifier", "整流" }, { "hardclip", "ハードクリップ" }, { "wavefolder", "ウェーブフォルダー" } } },
                      { "driveDb", "ドライブ", 0, 36, 12, "dB" },
                      { "toneHz", "トーン（ローパス）", 1000, 12000, 6000, "Hz" },
                      { "mix", "ミックス", 0, 1, 0.5f, "" } } });
@@ -104,8 +105,10 @@ std::vector<EffectInfo> buildInfos()
                      { "toneHz", "トーン（ローパス）", 500, 16000, 8000, "Hz" },
                      { "followVoice", "声に連動する度合い", 0, 1, 0, "" } } });
 
-    v.push_back ({ "voicechar", "ボイスキャラクター", C::distortion, W::light, 2, "電話、ラジオ、拡声器、トランシーバーの音を1つで作る",
-                   { { "kind", "種類", 0, 3, 0, "", { { "telephone", "電話" }, { "radio", "ラジオ" }, { "megaphone", "拡声器" }, { "walkie", "トランシーバー" } } },
+    v.push_back ({ "voicechar", "ボイスキャラクター", C::distortion, W::light, 2, "電話、ラジオ、拡声器、トランシーバー、ヘルメット、水中、壁越し、レコード、ガスマスク、場内放送の音を1つで作る",
+                   { { "kind", "種類", 0, 9, 0, "", { { "telephone", "電話" }, { "radio", "ラジオ" }, { "megaphone", "拡声器" }, { "walkie", "トランシーバー" },
+                                                     { "helmet", "宇宙服のヘルメット" }, { "underwater", "水中" }, { "wall", "壁越し" },
+                                                     { "vinyl", "古いレコード" }, { "gasmask", "ガスマスク" }, { "stadium", "スタジアムの場内放送" } } },
                      { "intensity", "かかり具合", 0, 1, 0.5f, "" },
                      { "mix", "ミックス", 0, 1, 1, "" } } });
 
@@ -156,15 +159,20 @@ std::vector<EffectInfo> buildInfos()
                      { "chance", "拍ごとに繰り返す確率", 0, 1, 0.5f, "" },
                      { "mix", "ミックス", 0, 1, 1, "" } } });
 
-    v.push_back ({ "echo", "エコー", C::timeSpace, W::medium, 2, "デジタル、テープ、リバースの3タイプのディレイ（最大 4 秒）",
-                   { { "mode", "タイプ", 0, 2, 0, "", { { "digital", "デジタル" }, { "tape", "テープ" }, { "reverse", "リバース" } } },
+    v.push_back ({ "echo", "エコー", C::timeSpace, W::medium, 2,
+                   "デジタル、テープ、リバース、スラップバック（短い1回の跳ね返り）、アナログ（暗くにじむ）、マルチタップ（複数の間隔で返る）の6タイプのディレイ（最大 4 秒）。スラップバックの「フィードバック」は2回目の返りの大きさ",
+                   { { "mode", "タイプ", 0, 5, 0, "", { { "digital", "デジタル" }, { "tape", "テープ" }, { "reverse", "リバース" },
+                                                        { "slapback", "スラップバック" }, { "analog", "アナログ" }, { "multitap", "マルチタップ" } } },
                      { "timeMs", "時間", 20, 4000, 300, "ms" },
                      { "feedback", "フィードバック", 0, 0.9f, 0.3f, "" },
                      { "toneHz", "繰り返しのトーン（ローパス）", 1000, 12000, 8000, "Hz" },
                      { "mix", "ミックス", 0, 1, 0.3f, "" } } });
 
-    v.push_back ({ "reverb", "リバーブ", C::timeSpace, W::medium, 2, "ルーム、ホール、プレート、スプリング、アンビエンスの5タイプ",
-                   { { "type", "タイプ", 0, 4, 0, "", { { "room", "ルーム" }, { "hall", "ホール" }, { "plate", "プレート" }, { "spring", "スプリング" }, { "ambience", "アンビエンス" } } },
+    v.push_back ({ "reverb", "リバーブ", C::timeSpace, W::medium, 2,
+                   "ルーム、ホール、プレート、スプリング、アンビエンス、大聖堂、ゲート（残響をばっさり切る）、リバース（残響が前から迫る）、シマー（1オクターブ上がってきらめく）、洞窟、浴室の11タイプ。ゲートの「広さ」は切るまでの時間、リバースの「広さ」は迫る長さ",
+                   { { "type", "タイプ", 0, 10, 0, "", { { "room", "ルーム" }, { "hall", "ホール" }, { "plate", "プレート" }, { "spring", "スプリング" }, { "ambience", "アンビエンス" },
+                                                        { "cathedral", "大聖堂" }, { "gated", "ゲート" }, { "reverse", "リバース" }, { "shimmer", "シマー" },
+                                                        { "cave", "洞窟" }, { "bathroom", "浴室" } } },
                      { "room", "広さ", 0, 1, 0.5f, "" },
                      { "damp", "高域の減衰", 0, 1, 0.5f, "" },
                      { "preDelayMs", "プリディレイ", 0, 200, 0, "ms" },
@@ -211,6 +219,14 @@ std::vector<EffectInfo> buildInfos()
                    { { "bands", "バンド数", 12, 32, 20, "", {}, true },
                      { "brightness", "明るさ", -1, 1, 0, "" },
                      { "mix", "ミックス", 0, 1, 1, "" } } });
+
+    // wave7/ir (INTERFACES.md §9.3): weight from the measured CPU with a 10 s impulse response (ConvolutionTests)
+    v.push_back ({ "convolution", "残響ファイル", C::timeSpace, W::medium, 5, "好きな残響ファイル（WAV / FLAC / AIFF のインパルス応答）を声にたたみ込む",
+                   { { "mix", "ミックス", 0, 1, 0.3f, "" },
+                     { "preDelayMs", "プリディレイ", 0, 200, 0, "ms" },
+                     { "lowCutHz", "低域カット", 20, 1000, 80, "Hz" },
+                     { "highCutHz", "高域カット", 1000, 20000, 12000, "Hz" },
+                     { "lengthPct", "長さ（残響の後ろを短く切る）", 10, 100, 100, "%", {}, true } } });
 
     return v;
 }

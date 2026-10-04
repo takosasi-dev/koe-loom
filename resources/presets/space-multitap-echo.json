@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "space-multitap-echo",
+  "name": "マルチタップエコー",
+  "chain": [
+    {
+      "type": "echo",
+      "enabled": true,
+      "params": {
+        "mode": "multitap",
+        "timeMs": 600,
+        "feedback": 0.35,
+        "toneHz": 7000,
+        "mix": 0.35
+      }
+    }
+  ],
+  "outputTrimDb": 0
+}

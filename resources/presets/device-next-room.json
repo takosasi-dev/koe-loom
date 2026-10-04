@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "device-next-room",
+  "name": "隣の部屋の声",
+  "chain": [
+    {
+      "type": "voicechar",
+      "enabled": true,
+      "params": {
+        "kind": "wall",
+        "intensity": 0.9,
+        "mix": 1
+      }
+    }
+  ],
+  "outputTrimDb": 0
+}

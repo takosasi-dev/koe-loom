@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "space-stone-sanctuary",
+  "name": "石造りの聖堂（ふくらむ残響）",
+  "chain": [
+    {
+      "type": "reverb",
+      "enabled": true,
+      "params": {
+        "type": "cathedral",
+        "room": 0.85,
+        "damp": 0.55,
+        "preDelayMs": 30,
+        "mix": 0.45
+      }
+    }
+  ],
+  "outputTrimDb": 0
+}

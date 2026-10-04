@@ -132,6 +132,28 @@ public:
     int getSlotUiState (int slot) const;
     bool hasLooperRecording() const;                      // E-27: ask before structure changes
 
+    // ---- impulse-response files for "convolution" (INTERFACES.md §9.3, AppController_Ir.cpp, owner wave7/ir)
+    /** Copies the picked WAV/FLAC/AIFF into paths::irDir() (keeps an existing same-name file if identical,
+        otherwise adds " (2)" ...), sets the slot's file and rebuilds the chain. Refuses (Japanese whyNot) when
+        the slot is not "convolution", the file is unreadable, or longer than kIrMaxSeconds. */
+    bool setSlotFile (int slot, const juce::File& picked, juce::String& whyNot);
+    /** Use a file already in paths::irDir() by name ("" = none). */
+    void setSlotFileName (int slot, const juce::String& fileName);
+    /** The slot's file name ("" = none) and whether it is missing / unreadable. */
+    juce::String getSlotFileName (int slot) const;
+    bool isSlotFileMissing (int slot) const;
+    /** Audio files in paths::irDir(), sorted by name. */
+    static juce::StringArray listIrFiles();
+
+    // ---- compare and random (INTERFACES.md §9.4, AppController_Extra.cpp, owner wave7/extra)
+    /** While held, the output is the voice-changer-OFF sound (shifter, layers and chain bypassed) with the
+        usual crossfade. Never saved, does not mark the preset modified, released on preset load. */
+    void setCompareHold (bool held);
+    bool isCompareHeld() const { return compareHeld; }
+    /** おまかせ生成: replaces the working copy with a random but safe voice (pitch/formant + 2..4 effects).
+        Same seed -> same result. Refuses when the looper has a recording (E-27). Marks the preset modified. */
+    bool randomizeCurrent (uint32_t seed, juce::String& whyNot);
+
     // ================================================================ presets (F-05)
     PresetLibrary& getPresetLibrary() { return *library; }
     const Preset& getCurrentPreset() const { return current; } // working copy including edits
@@ -273,6 +295,7 @@ private:
     Preset current;                 // working copy
     std::string currentBaseId;      // the preset it came from
     bool modified = false;
+    bool compareHeld = false;       // INTERFACES.md §9.4
     bool micMuted = false, monitorOn = false;
 
     ScaleLayerPitch scalePitch;     // declared before the processor, which points at it

@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "space-analog-echo",
+  "name": "アナログディレイ（BBD風）",
+  "chain": [
+    {
+      "type": "echo",
+      "enabled": true,
+      "params": {
+        "mode": "analog",
+        "timeMs": 350,
+        "feedback": 0.5,
+        "toneHz": 6000,
+        "mix": 0.35
+      }
+    }
+  ],
+  "outputTrimDb": 0
+}

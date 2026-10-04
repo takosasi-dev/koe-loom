@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "device-vinyl",
+  "name": "古いレコード",
+  "chain": [
+    {
+      "type": "voicechar",
+      "enabled": true,
+      "params": {
+        "kind": "vinyl",
+        "intensity": 0.8,
+        "mix": 1
+      }
+    }
+  ],
+  "outputTrimDb": 0
+}

@@ -99,7 +99,7 @@ private:
                                                  "tour.formant", "voice.shifterToggle", "voice.inputDevice", "voice.inputMeter", "tour.outputMeter",
                                                  "voice.outputDeviceLink", "tour.chain", "chain.slot.0", "chain.slot.0.toggle", "chain.add",
                                                  "voice.bottom", "tour.monitor", "voice.monitorToggle", "tour.status", "voice.input", "voice.output",
-                                                 "voice.shifter", "voice.layers", "voice.layer.0", "voice.layer.0.toggle" };
+                                                 "voice.shifter", "voice.layers", "voice.layer.0", "voice.layer.0.toggle", "voice.compare", "voice.random" };
 
     void checkLayout (MainComponent& mc, const juce::String& label, bool expectPath)
     {
@@ -132,7 +132,8 @@ private:
         };
         noOverlap ({ "main.header", "main.notices", "paper.path", "tour.presets", "voice.input", "voice.shifter", "voice.layers", "voice.output",
                      "tour.chain", "voice.bottom" }, nullptr);
-        noOverlap ({ "voice.presetSelector", "voice.presetList", "voice.favorites", "voice.presetSave", "voice.presetDuplicate" }, "tour.presets");
+        noOverlap ({ "voice.presetSelector", "voice.presetList", "voice.favorites", "voice.presetSave", "voice.presetDuplicate", "voice.compare", "voice.random" },
+                   "tour.presets");
         noOverlap ({ "tour.pitch", "tour.formant", "voice.shifterToggle" }, "voice.shifter");
         noOverlap ({ "voice.layerAdd", "voice.layersResume", "voice.layer.0", "voice.layer.1" }, "voice.layers");
         noOverlap ({ "voice.inputDevice", "voice.inputMeter" }, "voice.input");

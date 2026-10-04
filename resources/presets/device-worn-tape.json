@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "device-worn-tape",
+  "name": "伸びたカセットテープ",
+  "chain": [
+    {
+      "type": "saturator",
+      "enabled": true,
+      "params": {
+        "mode": "tapewear",
+        "driveDb": 9,
+        "toneHz": 6000,
+        "mix": 1
+      }
+    }
+  ],
+  "outputTrimDb": 0
+}

@@ -192,8 +192,10 @@ class PresetRow : public juce::Component
 {
 public:
     PresetRow (AppController& ctl, Navigator& n)
-        : c (ctl), nav (n), list (ja ("一覧")), fav (ja ("お気に入り"), Theme::fontS, Icon::star), save (ja ("保存")), dup (ja ("複製"))
+        : c (ctl), nav (n), list (ja ("一覧")), fav (ja ("お気に入り"), Theme::fontS, Icon::star), save (ja ("保存")), dup (ja ("複製")),
+          extras (ctl, n)
     {
+        addAndMakeVisible (extras); // §9.4: 聞き比べ / おまかせ beside the selector
         setComponentID ("tour.presets");
         selector.onClick = [this] { showPresetMenu(); };
         addAndMakeVisible (selector);
@@ -212,7 +214,13 @@ public:
     }
 
     static int height (bool compact) { return compact ? 46 : 60; }
-    void setCompact (bool cp) { compact = cp; resized(); repaint(); }
+    void setCompact (bool cp)
+    {
+        compact = cp;
+        extras.setStyle (false, false, cp ? Theme::fontXS : Theme::fontS);
+        resized();
+        repaint();
+    }
 
     void refresh()
     {
@@ -235,6 +243,9 @@ public:
         }
         const int selW = compact ? 180 : 220;
         selector.setBounds (row.removeFromRight (selW).withSizeKeepingCentre (selW, lh));
+        row.removeFromRight (Theme::space3);
+        const int ew = extras.preferredWidth (lh);
+        extras.setBounds (row.removeFromRight (ew).withSizeKeepingCentre (ew, lh));
         row.removeFromRight (Theme::space3);
         nameArea = row;
     }
@@ -363,6 +374,7 @@ private:
     bool compact = false;
     PresetSelector selector;
     TextLink list, fav, save, dup;
+    VoiceExtras extras;
     juce::Rectangle<int> nameArea;
 };
 

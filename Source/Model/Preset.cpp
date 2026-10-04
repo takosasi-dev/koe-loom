@@ -67,6 +67,17 @@ juce::var toVar (float f)
     return std::strtod (buf, nullptr);
 }
 
+/** A file name inside paths::irDir() (INTERFACES.md §9.3): no folders, no "..", nothing Windows refuses. */
+bool isValidIrFileName (const juce::String& name)
+{
+    if (name.isEmpty() || name.getNumBytesAsUTF8() > 255 || name.contains ("..") || name.containsAnyOf ("/\\<>:\"|?*")
+        || name.trim() != name || name.endsWithChar ('.'))
+        return false;
+    for (auto p = name.getCharPointer(); ! p.isEmpty(); ++p)
+        if (*p < 0x20) return false;
+    return true;
+}
+
 bool isHeavy (const SlotDef& s)
 {
     auto* info = findEffectInfo (s.type);
@@ -86,6 +97,13 @@ std::optional<SlotDef> parseSlot (const juce::var& v, int& clamped)
         if (e.isBool()) slot->enabled = bool (e);
         else ++clamped;
     }
+
+    if (type == "convolution") // the only type with a file (INTERFACES.md §9.3); other types ignore the key
+        if (const auto& f = v["file"]; ! f.isVoid())
+        {
+            if (f.isString() && isValidIrFileName (f.toString())) slot->file = f.toString().toStdString();
+            else if (! (f.isString() && f.toString().isEmpty())) ++clamped; // folders, "..", wrong type: dropped
+        }
 
     const auto& params = v["params"];
     if (! params.isObject()) return slot;
@@ -329,6 +347,7 @@ juce::String serializePreset (const Preset& preset)
                 po->setProperty (spec.id, toVar (v));
         }
         so->setProperty ("params", juce::var (po));
+        if (s.type == "convolution" && ! s.file.empty()) so->setProperty ("file", juce::String::fromUTF8 (s.file.c_str()));
         chain.add (juce::var (so));
     }
     o->setProperty ("chain", chain);

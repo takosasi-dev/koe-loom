@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "device-wavefolder",
+  "name": "ウェーブフォルダーの電子声",
+  "chain": [
+    {
+      "type": "distortion",
+      "enabled": true,
+      "params": {
+        "shape": "wavefolder",
+        "driveDb": 24,
+        "toneHz": 8000,
+        "mix": 0.6
+      }
+    }
+  ],
+  "outputTrimDb": 0
+}

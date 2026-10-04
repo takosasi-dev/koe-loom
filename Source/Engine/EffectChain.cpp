@@ -1,5 +1,6 @@
 #include "Engine/EffectChain.h"
 
+#include "Core/Paths.h"
 #include "Effects/EffectRegistry.h"
 
 #include <algorithm>
@@ -23,6 +24,8 @@ std::unique_ptr<EffectChain> EffectChain::create (const std::vector<SlotDef>& de
         s->type = d.type;
         s->info = info;
         fx->prepare (sampleRate, maxBlockSize);
+        if (! d.file.empty())
+            fx->setAssetPath (paths::irDir().getChildFile (juce::String::fromUTF8 (d.file.c_str())).getFullPathName().toStdString());
         for (size_t p = 0; p < info->params.size(); ++p)
         {
             const float v = info->params[p].clamp (p < d.params.size() ? d.params[p] : info->params[p].def);

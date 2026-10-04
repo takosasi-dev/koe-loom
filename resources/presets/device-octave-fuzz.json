@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "device-octave-fuzz",
+  "name": "整流オクターブ声",
+  "chain": [
+    {
+      "type": "distortion",
+      "enabled": true,
+      "params": {
+        "shape": "rectifier",
+        "driveDb": 18,
+        "toneHz": 6000,
+        "mix": 0.6
+      }
+    }
+  ],
+  "outputTrimDb": 1
+}

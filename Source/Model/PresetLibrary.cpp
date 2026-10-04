@@ -25,8 +25,14 @@ const char* const kBuiltinOrder[] = {
     "device-telephone", "device-am-radio", "device-megaphone", "device-military-radio", "device-8bit",
     "device-broken-speaker", "device-old-tape", "device-radio-noise", "device-wah-voice", "device-vowel-filter",
     "device-slicer-trance", "device-stutter-glitch",
+    // wave 7 (tone): kept inside the device block, which ModelTests requires to be contiguous
+    "device-helmet", "device-underwater", "device-next-room", "device-vinyl", "device-gasmask", "device-stadium",
+    "device-octave-fuzz", "device-hardclip", "device-wavefolder", "device-transistor", "device-worn-tape",
     "space-cave", "space-bath", "space-cathedral", "space-yamabiko", "space-underwater", "space-behind-wall",
     "space-tape-echo", "space-reverse-echo",
+    // wave 7 (INTERFACES.md §9.5): the new reverb / echo types, at the end of the space block (blocks stay contiguous)
+    "space-stone-sanctuary", "space-gated-80s", "space-reverse-swell", "space-shimmer-heaven", "space-limestone-cave",
+    "space-tiled-bathroom", "space-slapback-50s", "space-analog-echo", "space-multitap-echo",
     "layered-harmony-fifth", "layered-harmony-octave", "layered-choir-3", "layered-drunk", "layered-trembling",
     "layered-phaser-voice", "layered-rotary-voice", "layered-harmony-scale",
 };

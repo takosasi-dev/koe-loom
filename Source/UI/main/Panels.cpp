@@ -1,5 +1,6 @@
 #include "UI/main/Panels.h"
 
+#include "Core/Paths.h"
 #include "Effects/EffectRegistry.h"
 
 namespace koe::ui::mainui
@@ -14,6 +15,7 @@ constexpr int kFooterH = Theme::space5 + Theme::space3;    // 48
 constexpr int kCellW = Theme::space5 * 4;                  // 128
 constexpr int kCellH = Theme::space5 * 2 + Theme::space4;  // 88
 constexpr int kNumCategories = 8;
+constexpr int kFileStatusH = Theme::space3 + 4;           // the line under the convolution file row
 } // namespace
 
 // =============================================================================================== S-07
@@ -277,12 +279,44 @@ SlotDetailPanel::SlotDetailPanel (AppController& ctl, Navigator& n, int s)
         if (b != nullptr) addAndMakeVisible (*b);
     if (action1 != nullptr) startTimerHz (10);
 
+    if (type == "convolution") // INTERFACES.md §9.3
+    {
+        chooseFile = std::make_unique<PillButton> (ja ("ファイルを選ぶ…"), PillButton::Style::outline);
+        chooseFile->setComponentID ("slotDetail.irChoose");
+        chooseFile->setTooltip (ja ("WAV / FLAC / AIFF の残響ファイル（10 秒まで）を選びます。ir フォルダにコピーして使います。"));
+        chooseFile->onClick = [this] { pickIrFile(); };
+        openFolder = std::make_unique<PillButton> (ja ("フォルダを開く"), PillButton::Style::ghost);
+        openFolder->setComponentID ("slotDetail.irFolder");
+        openFolder->setTooltip (paths::irDir().getFullPathName());
+        openFolder->onClick = []
+        {
+            const auto dir = paths::irDir();
+            dir.createDirectory();
+            dir.startAsProcess();
+        };
+        irList = std::make_unique<juce::ComboBox>();
+        irList->setComponentID ("slotDetail.irList");
+        irList->setTitle (ja ("ir フォルダの残響ファイル"));
+        irList->setTooltip (ja ("ir フォルダにある残響ファイルから選びます。"));
+        irList->onChange = [this]
+        {
+            const int id = irList->getSelectedId();
+            if (id <= 0) return;
+            const auto name = id == 1 ? juce::String() : irList->getItemText (irList->indexOfItemId (id));
+            if (name != c.getSlotFileName (slot)) c.setSlotFileName (slot, name);
+        };
+        for (juce::Component* comp : { (juce::Component*) chooseFile.get(), (juce::Component*) irList.get(), (juce::Component*) openFolder.get() })
+            addAndMakeVisible (comp);
+        refreshIrList();
+    }
+
     updateValues();
     updateActions();
     c.addChangeListener (this);
     const int rowsN = (int (cells.size()) + 4) / 5;
     setSize (Theme::space5 * 22 + Theme::space3, headerHeight + Theme::space5 + Theme::space3 + juce::jmax (1, rowsN) * kCellH
-                                                     + (action1 != nullptr ? Theme::space3 + Theme::buttonH : 0) + Theme::space4);
+                                                     + (action1 != nullptr ? Theme::space3 + Theme::buttonH : 0)
+                                                     + (irList != nullptr ? Theme::buttonH + kFileStatusH + Theme::space2 : 0) + Theme::space4);
 }
 
 SlotDetailPanel::~SlotDetailPanel() { c.removeChangeListener (this); }
@@ -308,6 +342,49 @@ juce::Component* SlotDetailPanel::controlFor (int p) const
     return nullptr;
 }
 
+juce::String SlotDetailPanel::fileStatusText() const
+{
+    if (irList == nullptr) return {};
+    const auto name = c.getSlotFileName (slot);
+    if (name.isEmpty()) return ja ("ファイルが未選択です。選ぶまでは声をそのまま通します。");
+    if (c.isSlotFileMissing (slot)) return ja ("ファイルが見つかりません（") + name + ja ("）");
+    return ja ("使用中: ") + name;
+}
+
+bool SlotDetailPanel::fileStatusIsWarning() const { return irList != nullptr && c.isSlotFileMissing (slot); }
+
+void SlotDetailPanel::refreshIrList()
+{
+    if (irList == nullptr) return;
+    shownFile = c.getSlotFileName (slot);
+    irList->clear (juce::dontSendNotification);
+    irList->addItem (ja ("（なし）"), 1);
+    auto names = AppController::listIrFiles();
+    if (shownFile.isNotEmpty() && ! names.contains (shownFile)) names.add (shownFile); // missing: still shown as selected
+    int selected = 1;
+    for (int i = 0; i < names.size(); ++i)
+    {
+        irList->addItem (names[i], i + 2);
+        if (names[i] == shownFile) selected = i + 2;
+    }
+    irList->setSelectedId (selected, juce::dontSendNotification);
+    repaint();
+}
+
+void SlotDetailPanel::pickIrFile()
+{
+    chooser = std::make_unique<juce::FileChooser> (ja ("残響ファイル（WAV / FLAC / AIFF）を選ぶ"), juce::File(), "*.wav;*.flac;*.aif;*.aiff");
+    chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                          [safe = juce::Component::SafePointer<SlotDetailPanel> (this)] (const juce::FileChooser& fc)
+                          {
+                              const auto f = fc.getResult();
+                              if (safe == nullptr || f == juce::File()) return;
+                              juce::String why;
+                              if (! safe->c.setSlotFile (safe->slot, f, why)) safe->nav.showToast (why);
+                              safe->refreshIrList();
+                          });
+}
+
 int SlotDetailPanel::columns() const { return juce::jmax (1, (getWidth() - Theme::space4 * 2) / kCellW); }
 
 void SlotDetailPanel::updateValues()
@@ -323,6 +400,7 @@ void SlotDetailPanel::updateValues()
         if (cell.knob != nullptr) cell.knob->setValue (v, juce::dontSendNotification);
         if (cell.combo != nullptr) cell.combo->setSelectedId (juce::roundToInt (v) + 1, juce::dontSendNotification);
     }
+    if (irList != nullptr && c.getSlotFileName (slot) != shownFile) refreshIrList();
     repaint();
 }
 
@@ -363,6 +441,15 @@ void SlotDetailPanel::resized()
     toggle.setBounds (top.removeFromRight (Theme::toggleW + Theme::space2 + 28));
     descArea = top.withTrimmedRight (Theme::space3);
     r.removeFromTop (Theme::space3);
+    if (irList != nullptr)
+    {
+        auto row = r.removeFromTop (Theme::buttonH);
+        chooseFile->setBounds (row.removeFromLeft (juce::jmax (Theme::space5 * 4, chooseFile->preferredWidth())));
+        openFolder->setBounds (row.removeFromRight (juce::jmax (Theme::space5 * 3, openFolder->preferredWidth())));
+        irList->setBounds (row.reduced (Theme::space2, 0).withSizeKeepingCentre (row.getWidth() - Theme::space2 * 2, Theme::touchMin));
+        fileStatus = r.removeFromTop (kFileStatusH);
+        r.removeFromTop (Theme::space2);
+    }
     if (action1 != nullptr)
     {
         auto f = r.removeFromBottom (Theme::buttonH);
@@ -409,6 +496,9 @@ void SlotDetailPanel::paint (juce::Graphics& g)
         g.setFont (Theme::ui (Theme::fontS));
         g.drawFittedText (juce::String::fromUTF8 (info->descJa), d, juce::Justification::centredLeft, 2, 0.9f);
     }
+    if (irList != nullptr)
+        drawText (g, fileStatusText(), fileStatus, Theme::fontXS, fileStatusIsWarning() ? p.warn : p.textSub, juce::Justification::centredLeft,
+                  fileStatusIsWarning());
     if (c.isSlotAutoStopped (slot))
         drawText (g, ja ("自動停止"), toggle.getBounds().translated (-Theme::space5 * 2 - Theme::space2, 0).withWidth (Theme::space5 * 2), Theme::fontXS, p.warn,
                   juce::Justification::centredRight, true);
