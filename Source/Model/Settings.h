@@ -142,6 +142,16 @@ struct Settings
     std::map<juce::String, float> calibratedTrimDb; // 自分の声で音量合わせ: built-in preset id -> output trim (replaces its outputTrimDb)
     juce::String calibratedAt;             // when that was measured (ISO 8601), "" = never
 
+    // ---- wave 9 (INTERFACES.md §11, owner request 2026-10-04). Every default keeps the old behaviour. ----
+    bool micEqOn = false;                  // マイクの癖の補正 (only does something when micEqGainsDb is set)
+    std::vector<float> micEqGainsDb;       // empty = never measured, else kMicEqBands gains at kMicEqBandHz, each +-kMicEqMaxDb
+    juce::String micEqAt;                  // when that was measured (ISO 8601), "" = never
+    juce::String streamDevice;             // 配信用の出力: output device name, "" = OFF
+    float streamVolumeDb = kStreamVolumeDb.def;
+    bool overlayOn = false;                // 画面の端に今の声を表示
+    int overlayCorner = 0;                 // 0 = top right, 1 = bottom right, 2 = bottom left, 3 = top left
+    float overlaySeconds = kOverlaySeconds.def;
+
     bool operator== (const Settings&) const = default;
 };
 

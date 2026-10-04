@@ -31,6 +31,14 @@ inline constexpr float kTestTakeMaxSeconds = 15.0f;     // 試し録り: longest
 inline constexpr float kCalibrationSeconds = 10.0f;     // 自分の声で音量合わせ: how long the user speaks
 inline constexpr int kMomentarySlots = 4;               // 押している間だけのエフェクト: hotkey actions momentary.1..4
 inline constexpr int kMaxAppSwitchRules = 20;           // アプリごとの自動切り替え
+inline constexpr float kMicEqSeconds = 10.0f;           // マイクの癖の補正: how long the user speaks (INTERFACES.md §11)
+inline constexpr int kMicEqBands = 14;                  // half-octave peaking bands at kMicEqBandHz
+inline constexpr float kMicEqBandHz[kMicEqBands] { 125, 180, 250, 355, 500, 710, 1000, 1400, 2000, 2800, 4000, 5600, 8000, 11200 };
+inline constexpr float kMicEqMaxDb = 6.0f;              // each band within +-6 dB
+inline constexpr float kModLowDb = -50.0f;              // 声の大きさで変わる効果: input level (dBFS) mapped to 0 ..
+inline constexpr float kModHighDb = -10.0f;             // .. and to 1
+inline constexpr float kModAttackMs = 10.0f;            // its envelope follower
+inline constexpr float kModReleaseMs = 200.0f;
 
 // ---- soundboard (A-4, F-06) ----
 inline constexpr int kSoundboardSlots = 12;
@@ -51,6 +59,8 @@ inline constexpr Range kGateAttackMs { 0.1f, 50.0f, 5.0f };
 inline constexpr Range kGateHoldMs { 0.0f, 500.0f, 80.0f };
 inline constexpr Range kGateReleaseMs { 10.0f, 1000.0f, 120.0f };
 inline constexpr Range kMonitorVolumeDb { -40.0f, 0.0f, -6.0f };
+inline constexpr Range kStreamVolumeDb { -24.0f, 6.0f, 0.0f };     // 配信用の出力 (INTERFACES.md §11)
+inline constexpr Range kOverlaySeconds { 1.0f, 5.0f, 2.0f };       // 画面の端に今の声を表示
 inline constexpr Range kSoundboardVolumeDb { -24.0f, 6.0f, 0.0f }; // F-06-4
 inline constexpr Range kDuckingDb { -24.0f, 0.0f, 0.0f };         // F-06-7
 inline constexpr Range kLayerDegree { -7.0f, 7.0f, 2.0f };        // F-02-11 (0 excluded)

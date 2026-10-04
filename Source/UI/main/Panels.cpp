@@ -208,6 +208,170 @@ void EffectPicker::paintOverChildren (juce::Graphics& g)
 }
 
 // =============================================================================================== S-09
+// 声の大きさで動かす (wave9/voice, INTERFACES.md §11.3): target (なし / かかり具合 / a numeric knob), depth -100..+100 %
+// that sticks at 0, and a small meter of the voice level the slot follows (AppController::getModLevel).
+namespace
+{
+constexpr int kModRowH = Theme::touchMin + Theme::space1 + Theme::space3; // controls + the hint line (52)
+
+juce::String depthText (double v) { return (v > 0.0 ? "+" : "") + juce::String (juce::roundToInt (v)) + " %"; }
+
+/** -100..+100 %, filled from the middle, stops at 0 on the way through. */
+class DepthSlider : public ValueSlider
+{
+public:
+    DepthSlider() { setup (-100.0, 100.0, 0.0, 1.0, depthText); }
+    double snapValue (double v, DragMode) override { return std::abs (v) < 8.0 ? 0.0 : v; }
+    void paint (juce::Graphics& g) override
+    {
+        const auto& p = P();
+        auto r = getLocalBounds().toFloat();
+        auto text = r.removeFromRight (float (valueTextWidth));
+        auto track = r.reduced (8.0f, 0.0f).withSizeKeepingCentre (r.getWidth() - 16.0f, 6.0f);
+        g.setColour (p.border);
+        g.fillRoundedRectangle (track, 3.0f);
+        const float x0 = track.getCentreX(), x = track.getX() + track.getWidth() * float (valueToProportionOfLength (getValue()));
+        g.setColour (isEnabled() ? p.accent : p.textSub);
+        g.fillRoundedRectangle (juce::Rectangle<float>::leftTopRightBottom (std::min (x0, x), track.getY(), std::max (x0, x), track.getBottom()), 3.0f);
+        g.setColour (p.textSub);
+        g.fillRect (juce::Rectangle<float> (1.0f, 12.0f).withCentre ({ x0, track.getCentreY() }));
+        const auto thumb = juce::Rectangle<float> (16.0f, 16.0f).withCentre ({ x, track.getCentreY() });
+        g.setColour (isEnabled() ? p.text : p.textSub);
+        g.fillEllipse (thumb);
+        g.setColour (p.raised);
+        g.drawEllipse (thumb, 2.0f);
+        drawText (g, depthText (getValue()), text.toNearestInt(), Theme::fontS, isEnabled() ? p.text : p.textSub, juce::Justification::centredRight, true, true);
+        if (hasKeyboardFocus (true)) drawFocusRing (g, thumb, 8.0f);
+    }
+};
+
+class ModMeter : public juce::Component, public juce::SettableTooltipClient
+{
+public:
+    void setLevel (float v)
+    {
+        v = juce::jlimit (0.0f, 1.0f, v);
+        if (std::abs (v - level) < 0.005f) return;
+        level = v;
+        repaint();
+    }
+    float getLevel() const { return level; }
+    void paint (juce::Graphics& g) override
+    {
+        const auto& p = P();
+        const auto b = getLocalBounds().toFloat().withSizeKeepingCentre (float (getWidth()), 8.0f);
+        g.setColour (p.trackOff);
+        g.fillRoundedRectangle (b, 4.0f);
+        if (level > 0.0f)
+        {
+            g.setColour (isEnabled() ? p.accent : p.textSub);
+            g.fillRoundedRectangle (b.withWidth (juce::jmax (b.getHeight(), b.getWidth() * level)), 4.0f);
+        }
+    }
+
+private:
+    float level = 0.0f;
+};
+} // namespace
+
+class SlotDetailPanel::ModRow : public juce::Component
+{
+public:
+    ModRow (AppController& ctl, int s, const EffectInfo* info) : c (ctl), slot (s)
+    {
+        setComponentID ("slotDetail.mod");
+        targets.push_back ("");
+        target.addItem (ja ("なし"), 1);
+        targets.push_back ("wet");
+        target.addItem (ja ("かかり具合"), 2);
+        if (info != nullptr)
+            for (auto& spec : info->params)
+                if (! spec.isChoice()) // a choice cannot move smoothly (INTERFACES.md §11.1)
+                {
+                    targets.push_back (spec.id);
+                    target.addItem (juce::String::fromUTF8 (spec.nameJa), int (targets.size()));
+                }
+        target.setComponentID ("slotDetail.modTarget");
+        target.setTitle (ja ("声の大きさで動かす先"));
+        target.setTooltip (ja ("声の大きさに合わせて動かすつまみを選びます。"));
+        target.onChange = [this]
+        {
+            const int id = target.getSelectedId();
+            if (id <= 0) return;
+            if (id > 1 && depth.getValue() == 0.0) depth.setValue (50.0, juce::dontSendNotification); // something to hear at once
+            apply();
+        };
+        depth.setComponentID ("slotDetail.modDepth");
+        depth.setTitle (ja ("声の大きさで動かす深さ"));
+        depth.setTooltip (ja ("大きな声ほど強く。マイナスにすると逆（大きな声ほど弱く）。0 で止まります。"));
+        depth.onValueChange = [this] { apply(); };
+        meter.setComponentID ("slotDetail.modMeter");
+        meter.setTooltip (ja ("いまの声の大きさ（このスロットが追っている値）"));
+        for (auto* comp : { (juce::Component*) &target, (juce::Component*) &depth, (juce::Component*) &meter })
+            addAndMakeVisible (comp);
+        update();
+        tick();
+    }
+
+    /** From the slot (after any change). */
+    void update()
+    {
+        const auto& chain = c.getChain();
+        if (slot < 0 || slot >= int (chain.size())) return;
+        const auto& s = chain[size_t (slot)];
+        int id = 1;
+        for (size_t i = 0; i < targets.size(); ++i)
+            if (targets[i] == s.modTarget) id = int (i) + 1;
+        target.setSelectedId (id, juce::dontSendNotification);
+        depth.setValue (double (s.modDepth) * 100.0, juce::dontSendNotification);
+        depth.setEnabled (id > 1);
+        meter.setEnabled (id > 1);
+        repaint();
+    }
+
+    void tick() { meter.setLevel (target.getSelectedId() > 1 ? c.getModLevel() : 0.0f); }
+
+    void resized() override
+    {
+        auto r = getLocalBounds();
+        r.removeFromTop (Theme::space1); // the divider line
+        hint = r.removeFromBottom (Theme::space3);
+        label = r.removeFromLeft (Theme::space5 * 4 - Theme::space2);
+        meter.setBounds (r.removeFromRight (Theme::space5 * 2));
+        r.removeFromRight (Theme::space3);
+        target.setBounds (r.removeFromLeft (juce::jmin (Theme::space5 * 5, r.getWidth() / 2)));
+        r.removeFromLeft (Theme::space2);
+        depth.setBounds (r);
+        hint = hint.withLeft (target.getX());
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        const auto& p = P();
+        g.setColour (p.divider);
+        g.drawHorizontalLine (0, 0.0f, float (getWidth()));
+        drawText (g, ja ("声の大きさで動かす"), label, Theme::fontS, p.text, juce::Justification::centredLeft, true);
+        drawText (g, ja ("大きな声ほど強く。マイナスにすると逆。"), hint, Theme::fontXS, p.textSub);
+    }
+
+private:
+    void apply()
+    {
+        const int id = target.getSelectedId();
+        if (id <= 0) return;
+        c.setSlotMod (slot, targets[size_t (id - 1)], float (depth.getValue() / 100.0));
+        update();
+    }
+
+    AppController& c;
+    const int slot;
+    std::vector<std::string> targets; // combo id - 1 -> SlotDef::modTarget
+    juce::ComboBox target;
+    DepthSlider depth;
+    ModMeter meter;
+    juce::Rectangle<int> label, hint;
+};
+
 SlotDetailPanel::SlotDetailPanel (AppController& ctl, Navigator& n, int s)
     : PanelBase (n, {}), c (ctl), slot (s),
       type (s >= 0 && s < int (ctl.getChain().size()) ? ctl.getChain()[size_t (s)].type : std::string())
@@ -277,7 +441,12 @@ SlotDetailPanel::SlotDetailPanel (AppController& ctl, Navigator& n, int s)
     }
     for (auto* b : { action1.get(), action2.get() })
         if (b != nullptr) addAndMakeVisible (*b);
-    if (action1 != nullptr) startTimerHz (10);
+    if (info != nullptr) // wave9/voice: 声の大きさで動かす
+    {
+        modRow = std::make_unique<ModRow> (c, slot, info);
+        addAndMakeVisible (*modRow);
+    }
+    if (action1 != nullptr || modRow != nullptr) startTimerHz (10);
 
     if (type == "convolution") // INTERFACES.md §9.3
     {
@@ -316,7 +485,8 @@ SlotDetailPanel::SlotDetailPanel (AppController& ctl, Navigator& n, int s)
     const int rowsN = (int (cells.size()) + 4) / 5;
     setSize (Theme::space5 * 22 + Theme::space3, headerHeight + Theme::space5 + Theme::space3 + juce::jmax (1, rowsN) * kCellH
                                                      + (action1 != nullptr ? Theme::space3 + Theme::buttonH : 0)
-                                                     + (irList != nullptr ? Theme::buttonH + kFileStatusH + Theme::space2 : 0) + Theme::space4);
+                                                     + (irList != nullptr ? Theme::buttonH + kFileStatusH + Theme::space2 : 0)
+                                                     + (modRow != nullptr ? kModRowH + Theme::space3 : 0) + Theme::space4);
 }
 
 SlotDetailPanel::~SlotDetailPanel() { c.removeChangeListener (this); }
@@ -401,6 +571,7 @@ void SlotDetailPanel::updateValues()
         if (cell.combo != nullptr) cell.combo->setSelectedId (juce::roundToInt (v) + 1, juce::dontSendNotification);
     }
     if (irList != nullptr && c.getSlotFileName (slot) != shownFile) refreshIrList();
+    if (modRow != nullptr) modRow->update();
     repaint();
 }
 
@@ -420,7 +591,11 @@ void SlotDetailPanel::updateActions()
     repaint();
 }
 
-void SlotDetailPanel::timerCallback() { updateActions(); }
+void SlotDetailPanel::timerCallback()
+{
+    updateActions();
+    if (modRow != nullptr) modRow->tick();
+}
 
 void SlotDetailPanel::changeListenerCallback (juce::ChangeBroadcaster*)
 {
@@ -462,6 +637,11 @@ void SlotDetailPanel::resized()
         }
         f.removeFromLeft (Theme::space3);
         footerText = f;
+        r.removeFromBottom (Theme::space3);
+    }
+    if (modRow != nullptr)
+    {
+        modRow->setBounds (r.removeFromBottom (kModRowH));
         r.removeFromBottom (Theme::space3);
     }
     const int cols = columns();

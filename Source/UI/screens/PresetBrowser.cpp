@@ -241,7 +241,7 @@ public:
         : use (ja ("このプリセットを使う"), PillButton::Style::primary), duplicate (ja ("複製"), PillButton::Style::outline),
           rename (ja ("名前変更"), PillButton::Style::outline), remove (ja ("削除"), PillButton::Style::outline),
           overwrite (ja ("上書き保存"), PillButton::Style::outline), exportButton (ja ("エクスポート"), PillButton::Style::outline),
-          note ({}, Theme::fontXS, Tone::sub)
+          shareButton (ja ("コードをコピー"), PillButton::Style::outline), note ({}, Theme::fontXS, Tone::sub)
     {
         use.setPill (true);
         use.setFontSize (Theme::fontM);
@@ -254,8 +254,10 @@ public:
         note.setComponentID ("presets.note");
         overwrite.setTooltip (ja ("いま使っているユーザープリセットに、いまの調整を保存します"));
         exportButton.setTooltip (ja ("このプリセットを JSON ファイルに書き出します"));
+        shareButton.setComponentID ("presets.shareCopy"); // wave9/share (INTERFACES.md §11.3)
+        shareButton.setTooltip (ja ("このプリセットを短い文字（KL1: ...）にしてコピーします。チャットに貼って渡せます"));
         addAndMakeVisible (use);
-        for (auto* b : { &duplicate, &rename, &remove, &overwrite, &exportButton })
+        for (auto* b : { &duplicate, &rename, &remove, &overwrite, &exportButton, &shareButton })
         {
             b->setFontSize (Theme::fontXS);
             actions.add (*b, b->preferredWidth(), Theme::buttonH);
@@ -268,11 +270,12 @@ public:
     {
         preset = p != nullptr ? std::optional<Preset> (*p) : std::nullopt;
         const bool has = p != nullptr, user = has && ! p->builtin;
-        for (auto* b : { &use, &duplicate, &rename, &remove, &overwrite, &exportButton }) b->setVisible (has);
+        for (auto* b : { &use, &duplicate, &rename, &remove, &overwrite, &exportButton, &shareButton }) b->setVisible (has);
         note.setVisible (has);
         use.setEnabled (has);
         duplicate.setEnabled (has);
         exportButton.setEnabled (has);
+        shareButton.setEnabled (has);
         rename.setEnabled (user);
         remove.setEnabled (user);
         overwrite.setEnabled (user && isCurrent);
@@ -364,7 +367,7 @@ public:
     }
 
     std::optional<Preset> preset;
-    PillButton use, duplicate, rename, remove, overwrite, exportButton;
+    PillButton use, duplicate, rename, remove, overwrite, exportButton, shareButton;
     FlowBox actions { Theme::space2 };
     TextLabel note;
 
@@ -380,6 +383,7 @@ struct PresetBrowser::Impl final : juce::ChangeListener, juce::KeyListener
         : owner (o), c (ctl), nav (n), title (ja ("プリセット一覧"), Theme::fontL, Tone::text, true), favCount ({}, Theme::fontXS, Tone::sub),
           listTitle ({}, Theme::fontM, Tone::text, true), listCount ({}, Theme::fontXS, Tone::sub), message ({}, Theme::fontXS, Tone::text, true),
           saveNew (ja ("新しく保存"), PillButton::Style::outline, Icon::plus), importButton (ja ("インポート"), PillButton::Style::outline, Icon::folder),
+          codeImportButton (ja ("共有コードから読み込む"), PillButton::Style::outline),
           close (ja ("閉じる"), Icon::close)
     {
         owner.setWantsKeyboardFocus (true);
@@ -399,9 +403,11 @@ struct PresetBrowser::Impl final : juce::ChangeListener, juce::KeyListener
         saveNew.setTooltip (ja ("いまの声（調整を含む）を、新しいユーザープリセットとして保存します"));
         importButton.setComponentID ("presets.import");
         importButton.setTooltip (ja ("JSON ファイルのプリセットを読み込みます（64 KB まで）"));
+        codeImportButton.setComponentID ("presets.shareImport"); // wave9/share (INTERFACES.md §11.3)
+        codeImportButton.setTooltip (ja ("コピーした共有コード（KL1: ...）を、新しいユーザープリセットとして読み込みます"));
         close.setComponentID ("presets.close");
         search.setComponentID ("presets.search");
-        for (auto* comp : std::initializer_list<juce::Component*> { &title, &favCount, &saveNew, &importButton, &close, &search, &listTitle, &listCount, &viewport, &detail })
+        for (auto* comp : std::initializer_list<juce::Component*> { &title, &favCount, &saveNew, &importButton, &codeImportButton, &close, &search, &listTitle, &listCount, &viewport, &detail })
             owner.addAndMakeVisible (comp);
         owner.addChildComponent (message);
         for (int i = 0; i < kNumCategories; ++i)
@@ -418,6 +424,7 @@ struct PresetBrowser::Impl final : juce::ChangeListener, juce::KeyListener
         close.onClick = [this] { closeBrowser(); };
         saveNew.onClick = [this] { askSaveNew(); };
         importButton.onClick = [this] { importPreset(); };
+        codeImportButton.onClick = [this] { importShareCode (juce::SystemClipboard::getTextFromClipboard()); };
         search.onTextChange = [this] { applyFilter(); };
         search.onEscapeKey = [this]
         {
@@ -430,6 +437,7 @@ struct PresetBrowser::Impl final : juce::ChangeListener, juce::KeyListener
         detail.remove.onClick = [this] { askDelete(); };
         detail.overwrite.onClick = [this] { overwriteCurrent(); };
         detail.exportButton.onClick = [this] { exportSelected(); };
+        detail.shareButton.onClick = [this] { copyShareCode(); };
 
         selectedId = c.getCurrentPreset().id;
         const auto cur = c.getCurrentPreset().category();
@@ -707,6 +715,33 @@ struct PresetBrowser::Impl final : juce::ChangeListener, juce::KeyListener
         });
     }
 
+    // wave9/share (INTERFACES.md §11.3): the clipboard is only touched here, the controller does the work
+    void copyShareCode()
+    {
+        juce::String why;
+        const auto code = c.makeShareCode (selectedId, why);
+        if (code.isEmpty()) { nav.showToast (why); return; }
+        juce::SystemClipboard::copyTextToClipboard (code);
+        nav.showToast (ja ("共有コードをコピーしました（") + juce::String (code.length()) + ja (" 文字）"));
+    }
+
+    void importShareCode (const juce::String& text)
+    {
+        std::string newId;
+        PresetLoadReport report;
+        if (! c.importShareCode (text, newId, report))
+        {
+            nav.showToast (ja ("読み込めませんでした: ") + report.rejectReason);
+            return;
+        }
+        const auto* p = lib().find (newId);
+        nav.showToast (ja ("「") + (p != nullptr ? p->name : juce::String()) + ja ("」を共有コードから読み込みました"));
+        const auto notices = report.toJapanese(); // E-21..E-24, E-30, E-10: several lines, so in the message bar
+        showMessage (notices, Tone::warn);
+        category = indexOfCategory ("user");
+        libraryChanged (newId);
+    }
+
     static int indexOfCategory (const char* id)
     {
         for (int i = 0; i < kNumCategories; ++i)
@@ -773,8 +808,10 @@ struct PresetBrowser::Impl final : juce::ChangeListener, juce::KeyListener
         auto header = r.removeFromTop (Theme::headerH);
         close.setBounds (header.removeFromRight (Theme::controlH).withSizeKeepingCentre (Theme::controlH, Theme::controlH));
         header.removeFromRight (Theme::space3);
-        const int iw = importButton.preferredWidth(), sw = saveNew.preferredWidth();
+        const int iw = importButton.preferredWidth(), sw = saveNew.preferredWidth(), cw = codeImportButton.preferredWidth();
         importButton.setBounds (header.removeFromRight (iw).withSizeKeepingCentre (iw, Theme::buttonH));
+        header.removeFromRight (Theme::space2);
+        codeImportButton.setBounds (header.removeFromRight (cw).withSizeKeepingCentre (cw, Theme::buttonH));
         header.removeFromRight (Theme::space2);
         saveNew.setBounds (header.removeFromRight (sw).withSizeKeepingCentre (sw, Theme::buttonH));
         header.removeFromRight (Theme::space3);
@@ -833,7 +870,7 @@ struct PresetBrowser::Impl final : juce::ChangeListener, juce::KeyListener
     AppController& c;
     Navigator& nav;
     TextLabel title, favCount, listTitle, listCount, message;
-    PillButton saveNew, importButton;
+    PillButton saveNew, importButton, codeImportButton;
     IconButton close;
     SearchField search { ja ("プリセットを探す"), ja ("プリセットを名前で探す") };
     juce::OwnedArray<NavButton> categoryButtons;

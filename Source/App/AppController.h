@@ -11,6 +11,8 @@
 #include "App/Wave8Automation.h"
 #include "App/Wave8Capture.h"
 #include "App/Wave8Morph.h"
+#include "App/Wave9MicEq.h"
+#include "App/Wave9Stream.h"
 #include "Engine/AudioEngine.h"
 #include "Engine/CableProbe.h"
 #include "Engine/MonitorOutput.h"
@@ -231,6 +233,49 @@ public:
     /** Programs that have a visible window now (file names, sorted, unique), for the rule editor. */
     static juce::StringArray listRunningPrograms();
 
+    // ================================================================ wave 9 (INTERFACES.md §11, owner request 2026-10-04)
+    // ---- 声の大きさで変わる効果 (lead; the slot editor UI is wave9/voice) ----
+    /** target "" = none, "wet", or the id of a numeric param of that slot's type (else refused, false). depth -1..1.
+        Live (no chain rebuild); marks the working preset modified. */
+    bool setSlotMod (int slot, const std::string& target, float depth);
+    /** 0..1, the voice level the modulated slots follow right now (0 while no slot is modulated). */
+    float getModLevel() const;
+
+    // ---- マイクの癖の補正 (AppController_MicEq.cpp, owner wave9/voice) ----
+    struct MicEqState
+    {
+        enum class Phase { idle, recording, analysing, done, failed };
+        Phase phase = Phase::idle;
+        float progress = 0.0f;       // 0..1 within the phase
+        juce::String error;          // failed: Japanese
+    };
+    /** Records kMicEqSeconds of the user's voice, then works out Settings::micEqGainsDb (and micEqAt) on a background thread
+        and turns micEqOn on. Refuses (whyNot) while the devices are not running or already busy. */
+    bool startMicEqMeasure (juce::String& whyNot);
+    void cancelMicEqMeasure();
+    MicEqState getMicEqState() const;
+    void setMicEqOn (bool on);           // only audible when micEqGainsDb is set
+    void clearMicEq();                   // forgets the measurement (micEqGainsDb, micEqAt) and turns it off
+
+    // ---- プリセットの共有コード and サウンドボードに録音を登録 (AppController_Share.cpp, owner wave9/share) ----
+    /** A short text ("KL1:" + ...) that carries the whole preset, to paste in a chat. whyNot when the preset is unknown. */
+    juce::String makeShareCode (const std::string& presetId, juce::String& whyNot) const;
+    /** Reads a share code (surrounding spaces / line breaks and text around it are fine) into a new user preset, like
+        importPreset (same E-21..E-30 report). False with report.rejectReason in Japanese when it is not a valid code. */
+    bool importShareCode (const juce::String& text, std::string& newIdOut, PresetLoadReport& report);
+    /** Renders the 試し録り take through the working preset (offline, not real time) into a new WAV in
+        paths::recordingsDir(). File() and whyNot when there is no take or it cannot be written. */
+    juce::File renderTestTakeToFile (juce::String& whyNot);
+
+    // ---- 配信用の出力 (AppController_Stream.cpp, owner wave9/stream) ----
+    /** Devices the stream output may use: every output except the one the virtual mic goes to. */
+    juce::StringArray getStreamDevices() const;
+    /** "" = OFF. Saved in Settings::streamDevice and opened at once (and whenever the main devices open). */
+    void setStreamDevice (const juce::String& name);
+    void setStreamVolumeDb (float db);
+    bool isStreamRunning() const;
+    juce::String getStreamError() const; // Japanese, "" = fine
+
     // ================================================================ presets (F-05)
     PresetLibrary& getPresetLibrary() { return *library; }
     const Preset& getCurrentPreset() const { return current; } // working copy including edits
@@ -341,6 +386,12 @@ private:
     void tickCapture();      void shutdownCapture();      // AppController_Capture.cpp
     void tickAnalysis();     void shutdownAnalysis();     // AppController_Analysis.cpp
     void tickAutomation();   void shutdownAutomation();   // AppController_Automation.cpp
+    // wave 9 (INTERFACES.md §11), same idea
+    void tickMicEq();        void shutdownMicEq();        // AppController_MicEq.cpp
+    void applyMicEq();                                    //   end of applyEnvironment(): settings -> the input filter
+    void tickStream();       void shutdownStream();       // AppController_Stream.cpp
+    void openStream();                                    //   after the main devices opened (openDevicesIfReady)
+    void closeStream();                                   //   closeDevices()
     // Detailed settings (INTERFACES.md §7). before == nullptr: apply everything (startup, device reopen).
     void applyAudioSettings (const Settings* before);     // AppController_Audio.cpp, owner wave4/audio
     void applyPlatformSettings (const Settings* before);  // AppController_Platform.cpp, owner wave4/platform
@@ -411,5 +462,7 @@ private:
     AnalysisData analysis;          // App/Wave8Analysis.h, wave8/analysis
     MorphData morph;                // App/Wave8Morph.h, wave8/morph
     AutomationData automation;      // App/Wave8Automation.h, wave8/automation
+    MicEqData micEq;                // App/Wave9MicEq.h, wave9/voice
+    StreamData stream;              // App/Wave9Stream.h, wave9/stream
 };
 } // namespace koe

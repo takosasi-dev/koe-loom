@@ -8,10 +8,24 @@
 
 namespace koe
 {
+namespace
+{
+float followCoeff (double sampleRate, float ms) { return std::exp (-1.0f / std::max (1.0f, float (sampleRate * ms * 0.001))); }
+} // namespace
+
+int EffectChain::modIndexFor (const EffectInfo& info, const std::string& target) noexcept
+{
+    if (target == "wet") return kModWet;
+    const int p = info.paramIndex (target);
+    return p >= 0 && ! info.params[size_t (p)].isChoice() ? p : kModNone;
+}
+
 std::unique_ptr<EffectChain> EffectChain::create (const std::vector<SlotDef>& defs, double sampleRate, int maxBlockSize)
 {
     std::unique_ptr<EffectChain> chain (new EffectChain());
     chain->fadeStep = 1.0f / std::max (1.0f, float (sampleRate * kSlotToggleFadeMs * 0.001));
+    chain->modAttack = followCoeff (sampleRate, kModAttackMs);
+    chain->modRelease = followCoeff (sampleRate, kModReleaseMs);
     chain->onsetSamples = std::max (1, int (sampleRate * 0.005));
     for (auto& d : defs)
     {
@@ -37,6 +51,8 @@ std::unique_ptr<EffectChain> EffectChain::create (const std::vector<SlotDef>& de
         s->fx = std::move (fx);
         s->enabled.store (d.enabled);
         s->wet.store (std::clamp (d.wet, 0.0f, 1.0f));
+        s->modIndex.store (modIndexFor (*info, d.modTarget));
+        s->modDepth.store (std::clamp (d.modDepth, -1.0f, 1.0f));
         s->running = d.enabled;
         s->fade = d.enabled ? s->wet.load() : 0.0f;
         s->latency.store (d.enabled ? s->fx->getLatencySamples() : 0);
@@ -88,17 +104,44 @@ void EffectChain::process (float* x, int n)
 
 void EffectChain::processChunk (float* x, int n)
 {
+    // 声の大きさで変わる効果 (INTERFACES.md §11): follow the chain input only while some slot is modulated
+    bool anyMod = false;
+    for (auto& s : slots) anyMod = anyMod || s->modIndex.load (std::memory_order_relaxed) != kModNone;
+    float level = 0.0f;
+    if (anyMod)
+    {
+        for (int i = 0; i < n; ++i)
+        {
+            const float a = std::abs (x[i]);
+            const float k = a > modEnv ? modAttack : modRelease;
+            modEnv = std::isfinite (a) ? a + k * (modEnv - a) : modEnv;
+        }
+        const float db = 20.0f * std::log10 (modEnv + 1.0e-9f);
+        level = std::clamp ((db - kModLowDb) / (kModHighDb - kModLowDb), 0.0f, 1.0f);
+    }
+    else modEnv = 0.0f;
+    modLevel.store (level, std::memory_order_relaxed);
+
     for (int si = 0; si < int (slots.size()); ++si)
     {
         auto& s = *slots[size_t (si)];
         const bool want = s.enabled.load (std::memory_order_relaxed) && ! s.autoStopped.load (std::memory_order_relaxed);
+        const int mi = s.modIndex.load (std::memory_order_relaxed);
+        const float mod = mi != kModNone ? s.modDepth.load (std::memory_order_relaxed) * level : 0.0f;
+        auto paramValue = [&s, mi, mod] (size_t p)
+        {
+            const float v = s.params[p].load (std::memory_order_relaxed);
+            if (int (p) != mi) return v;
+            const auto& spec = s.info->params[p];
+            return spec.clamp (v + mod * (spec.max - spec.min));
+        };
 
         if (want && ! s.running)
         {
             // F-04-7: entering ON clears internal state, then fades in over 20 ms
             for (size_t p = 0; p < s.info->params.size(); ++p)
             {
-                s.applied[p] = s.params[p].load (std::memory_order_relaxed);
+                s.applied[p] = paramValue (p);
                 s.fx->setParam (int (p), s.applied[p]);
             }
             s.fx->reset();
@@ -115,7 +158,7 @@ void EffectChain::processChunk (float* x, int n)
 
         for (size_t p = 0; p < s.info->params.size(); ++p)
         {
-            const float v = s.params[p].load (std::memory_order_relaxed);
+            const float v = paramValue (p);
             if (v != s.applied[p]) { s.applied[p] = v; s.fx->setParam (int (p), v); }
         }
         if (const int trig = s.pendingTrigger.exchange (0); trig != 0 && want)
@@ -148,7 +191,8 @@ void EffectChain::processChunk (float* x, int n)
             continue;
         }
 
-        const float target = want ? std::clamp (s.wet.load (std::memory_order_relaxed), 0.0f, 1.0f) : 0.0f;
+        const float wet = s.wet.load (std::memory_order_relaxed) + (mi == kModWet ? mod : 0.0f);
+        const float target = want ? std::clamp (wet, 0.0f, 1.0f) : 0.0f;
         if (s.fade != 1.0f || target != 1.0f) // steady at wet 1 (the usual case): the effect's output as is
         {
             for (int i = 0; i < n; ++i)

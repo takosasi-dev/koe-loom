@@ -90,6 +90,8 @@ AppController::~AppController()
     shutdownCapture();   // wave 8 (INTERFACES.md §10): idempotent, shutdown() may have run them already
     shutdownAnalysis();
     shutdownAutomation();
+    shutdownMicEq();     // wave 9 (INTERFACES.md §11)
+    shutdownStream();
     processor.setAuxSource (nullptr);
     processor.setMonitorSink (nullptr);
     if (engine != nullptr) engine->close();
@@ -171,6 +173,8 @@ void AppController::shutdown()
     shutdownCapture();   // wave 8 (INTERFACES.md §10): finish files and background threads while the devices still run
     shutdownAnalysis();
     shutdownAutomation();
+    shutdownMicEq();     // wave 9 (INTERFACES.md §11)
+    shutdownStream();
     closeDevices();
     if (hotkeys != nullptr) hotkeys->unregisterAll();
     finishUpdateOnQuit(); // §7.4: a ready update replaces the exe when the app quits
@@ -280,6 +284,7 @@ void AppController::setBufferSize (int samples)
 
 void AppController::closeDevices()
 {
+    closeStream();       // wave 9 (INTERFACES.md §11)
     if (monitor != nullptr) monitor->close();
     if (engine != nullptr) engine->close();
 }
@@ -347,6 +352,7 @@ void AppController::openDevicesIfReady()
         if (const auto monitorErr = monitor->open (settings.monitorDevice, rate); monitorErr.isEmpty()) monitor->setEnabled (true);
         else monitorDeviceGone (monitorErr);
     }
+    openStream();        // wave 9 (INTERFACES.md §11)
 }
 
 void AppController::reprepareForTests (double rate, int buffer)
@@ -588,6 +594,33 @@ void AppController::setSlotParam (int i, int p, float v)
     markModified();
 }
 
+bool AppController::setSlotMod (int i, const std::string& target, float depth)
+{
+    if (i < 0 || i >= int (current.chain.size())) return false;
+    auto& s = current.chain[size_t (i)];
+    auto* info = findEffectInfo (s.type);
+    if (info == nullptr) return false;
+    const int mi = target.empty() ? EffectChain::kModNone : EffectChain::modIndexFor (*info, target);
+    if (! target.empty() && mi == EffectChain::kModNone) return false;
+    depth = std::isfinite (depth) ? std::clamp (depth, -1.0f, 1.0f) : 0.0f;
+    s.modTarget = target;
+    s.modDepth = target.empty() ? 0.0f : depth;
+    if (auto* chain = processor.getRequestedChain(); chain != nullptr)
+        if (const int ci = chainIndexFor (current.chain, i); ci >= 0 && ci < chain->size())
+        {
+            chain->slot (ci).modDepth.store (s.modDepth);
+            chain->slot (ci).modIndex.store (mi);
+        }
+    markModified();
+    return true;
+}
+
+float AppController::getModLevel() const
+{
+    auto* chain = processor.getRequestedChain();
+    return chain != nullptr ? chain->getModLevel() : 0.0f;
+}
+
 bool AppController::isSlotAutoStopped (int i) const
 {
     auto* chain = processor.getRequestedChain();
@@ -807,6 +840,7 @@ void AppController::applyEnvironment()
     applyMicMute();
     monitor->setVolumeDb (settings.monitorVolumeDb);
     applyAudioSettings (nullptr);
+    applyMicEq();        // wave 9 (INTERFACES.md §11)
 }
 
 void AppController::setInputGainDb (float db)
@@ -1211,6 +1245,8 @@ void AppController::timerCallback()
     }
     tickPushToTalk();
     tickCapture();       // wave 8 (INTERFACES.md §10)
+    tickMicEq();         // wave 9 (INTERFACES.md §11)
+    tickStream();
     tickAnalysis();
     tickAutomation();
 

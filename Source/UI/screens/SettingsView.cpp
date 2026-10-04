@@ -5,6 +5,7 @@
 // followed by a 「詳細な設定」 disclosure (one open / closed state for every card, Settings::settingsShowDetails).
 // While searching, the matching rows of every section (detailed ones too) are shown grouped by section;
 // rows stay in their own cards, the search only hides what does not match.
+#include "UI/Overlay.h"
 #include "UI/Screens.h"
 #include "UI/ThemeLibrary.h"
 #include "UI/main/Common.h"
@@ -921,6 +922,20 @@ struct SettingsView::Impl final : juce::ChangeListener, juce::Timer
         addInt (card, "reconnectSeconds", "再接続の間隔", "デバイスが外れたとき、つなぎ直しを試す間隔です（1〜10 秒）", "再接続 抜けた 外れた 復帰 デバイス",
                 &Settings::reconnectSeconds, 1, 10, 1, "秒");
         endDetails();
+
+        // wave9/stream (INTERFACES.md §11.3): 配信用の出力
+        auto& st = addCard (0, "配信用の出力", "OBS などで、相手に届く声を別に取りたいときに");
+        st.setComponentID ("settings.stream");
+        auto* sp = &stream;
+        reg (st.addRow (row ("出力先", ja ("相手に届く声とまったく同じ音を、このデバイスにも流します。OBS 用に別の仮想ケーブルも選べます。仮想マイクの出力先は選べません"),
+                             makeDeviceControl (stream, "settings.stream.device"), m::comboW, m::comboW - Theme::space5 * 2,
+                             [sp] (int w) { return deviceControlHeight (*sp, w); })),
+             "配信 OBS 録画 ストリーム 配信用 別の声 出力 仮想ケーブル デバイス");
+        stream.combo->onChange = [this] { c.setStreamDevice (stream.combo->getSelectedId() > 1 ? stream.combo->getText() : juce::String()); };
+        enableIf (addFloat (st, "streamVolumeDb", "配信の音量", "配信用の出力に流す音量です（-24〜+6 dB）。相手に届く声の音量は変わりません",
+                            "配信 OBS 音量 ボリューム ストリーム", &Settings::streamVolumeDb, kStreamVolumeDb, 0.5,
+                            [] (double v) { return formatDb (v); }),
+                  [] (const Settings& s) { return s.streamDevice.isNotEmpty(); });
     }
 
     static void fillCombo (DeviceControl& d, const juce::StringArray& names, const juce::String& placeholder, const juce::String& current)
@@ -972,7 +987,17 @@ struct SettingsView::Impl final : juce::ChangeListener, juce::Timer
                                          : ja ("仮想ケーブルは選べません（相手に二重に流れます）"));
         monitor.status->setTone (speaker ? Tone::warn : Tone::sub);
         monitor.status->setIcon (speaker ? std::optional<Icon> (Icon::warning) : std::nullopt);
-        for (auto* d : { &output, &input, &monitor }) d->box->resized();
+        // wave9/stream (INTERFACES.md §11.3)
+        fillCombo (stream, c.getStreamDevices(), ja ("使わない"), c.getSettings().streamDevice);
+        const auto streamErr = c.getStreamError();
+        const bool streamOn = c.isStreamRunning();
+        stream.status->setText (streamOn ? ja ("動いています")
+                                : streamErr.isNotEmpty() ? streamErr
+                                : c.getSettings().streamDevice.isNotEmpty() ? ja ("入力と出力のデバイスが動くと流れます")
+                                                                            : juce::String());
+        stream.status->setTone (streamOn ? Tone::ok : streamErr.isNotEmpty() ? Tone::warn : Tone::sub);
+        stream.status->setIcon (streamOn ? std::optional<Icon> (Icon::check) : streamErr.isNotEmpty() ? std::optional<Icon> (Icon::warning) : std::nullopt);
+        for (auto* d : { &output, &input, &monitor, &stream }) d->box->resized();
     }
 
     // ------------------------------------------------------------------------------- environment
@@ -1570,6 +1595,31 @@ struct SettingsView::Impl final : juce::ChangeListener, juce::Timer
         addToggle (card, "knobWheel", "ホイールでつまみを回す", "OFF にすると、マウスのホイールは画面のスクロールだけに使います", "ホイール マウス つまみ ノブ スクロール",
                    &Settings::knobWheel);
         endDetails();
+        buildOverlay();
+    }
+
+    // wave9/overlay (INTERFACES.md §11.3): 画面の端に今の声を表示 (the window is UI/Overlay.cpp's, kept by Main.cpp)
+    void buildOverlay()
+    {
+        auto& card = addCard (4, "画面の端に今の声を表示", "プリセット・ボイチェン・マイクミュートを切り替えたとき、画面の端に小さく出します");
+        card.setComponentID ("settings.overlay");
+        const char* aliases = "画面の端 オーバーレイ OSD 今の声 プリセット名 表示 通知 ゲーム 隅 角";
+        auto on = [] (const Settings& s) { return s.overlayOn; };
+        addToggle (card, "overlayOn", "画面の端に表示",
+                   "ほかのアプリを使っている間だけ出ます。ボーダーレス / ウィンドウ表示のゲームで見えます（排他的なフルスクリーンの上には出ません）。クリックは下のウィンドウに届きます",
+                   aliases, &Settings::overlayOn);
+        enableIf (addChoice (card, "overlayCorner", "表示する位置", "前に出ているウィンドウがある画面の角です", aliases, &Settings::overlayCorner,
+                             { "右上", "右下", "左下", "左上" }),
+                  on);
+        enableIf (addFloat (card, "overlaySeconds", "表示する秒数", "出てから消え始めるまでの時間です", aliases, &Settings::overlaySeconds, kOverlaySeconds,
+                            0.5, unitText (1, "秒")),
+                  on);
+        auto b = std::make_unique<PillButton> (ja ("試しに表示"), PillButton::Style::outline);
+        auto* raw = b.get();
+        raw->setComponentID ("settings.overlayPreview");
+        raw->onClick = [] { previewVoiceOverlay(); };
+        const int bw = raw->preferredWidth();
+        reg (card.addRow (row ("試しに表示", ja ("今の声で、いまの位置と秒数で一度だけ出します"), std::move (b), bw, bw, fixedH (Theme::buttonH))), aliases);
     }
 
     // ------------------------------------------------------------------------------- advanced (F-01-8, F-15-5, F-14-7)
@@ -1981,6 +2031,7 @@ struct SettingsView::Impl final : juce::ChangeListener, juce::Timer
     std::vector<std::function<void (const Settings&)>> refreshers;
 
     DeviceControl output, input, monitor;
+    DeviceControl stream; // wave9/stream
     ValueSlider *inGain = nullptr, *nsMix = nullptr, *gateThr = nullptr, *outGain = nullptr;
     ToggleSwitch *nsToggle = nullptr, *gateToggle = nullptr;
     NumberField *gateAtt = nullptr, *gateHold = nullptr, *gateRel = nullptr;

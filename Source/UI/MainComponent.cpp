@@ -1,6 +1,8 @@
 #include "UI/MainComponent.h"
 
 #include "Core/Paths.h"
+#include "Effects/EffectRegistry.h"
+#include "UI/Overlay.h"
 #include "UI/Screens.h"
 #include "UI/ThemeLibrary.h"
 #include "UI/main/GuideTour.h"
@@ -513,7 +515,7 @@ int renderSnapshots (const juce::File& outputDir)
         // wave 8 (INTERFACES.md §10.2): the ツール page, one shot per tool (+ the narrow window for the first)
         for (int i = 0; i < ToolsView::numTools; ++i)
         {
-            static const char* ids[] = { "take", "record", "pitch", "morph", "calibrate" };
+            static const char* ids[] = { "take", "record", "pitch", "morph", "calibrate", "miceq" };
             auto showTool = [i] (MainComponent& m)
             {
                 m.showPage (Navigator::Page::tools);
@@ -522,6 +524,8 @@ int renderSnapshots (const juce::File& outputDir)
             shot ("S10-" + juce::String (ids[i]) + t, W, H, showTool);
             if (i == 0) shot ("S10-" + juce::String (ids[i]) + "-min" + t, w, h, showTool);
         }
+        // wave9/share: S-06 in the narrow window (the share code buttons must still fit)
+        shot ("S06-min" + t, w, h, [] (MainComponent& m) { m.showPresetBrowser(); });
         // wave8/morph: 混ぜる while blending 魔王 x エイリアン at 40 %, driven through the tool's own controls
         auto morphing = [&c] (MainComponent& m)
         {
@@ -669,6 +673,92 @@ int renderSnapshots (const juce::File& outputDir)
             shot ("S10-calibrate-done-min" + t, w, h, showCalibrate);
             c.clearCalibration();
         }
+        // wave9/overlay: S11-overlay = the overlay's content alone (no window) on the page colour: usual, long name, OFF, muted;
+        // and the S-03 card 画面の端に今の声を表示 found by the search
+        {
+            const OverlayState states[] = { { juce::String::fromUTF8 ("魔王"), true, false },
+                                            { juce::String::fromUTF8 ("とても長い名前のユーザープリセット・配信用の低い声"), true, false },
+                                            { juce::String::fromUTF8 ("ヘリウム"), false, false },
+                                            { juce::String::fromUTF8 ("ロボット"), true, true } };
+            constexpr int gap = Theme::space4;
+            juce::Image sheet (juce::Image::ARGB, VoiceOverlayView::maxWidth + gap * 2, (VoiceOverlayView::preferredHeight() + gap) * 4 + gap, true);
+            {
+                juce::Graphics g (sheet);
+                g.fillAll (Theme::colours().bg);
+                int y = gap;
+                for (auto& st : states)
+                {
+                    VoiceOverlayView view;
+                    view.setState (st);
+                    view.setSize (view.preferredWidth(), VoiceOverlayView::preferredHeight());
+                    g.drawImageAt (view.createComponentSnapshot (view.getLocalBounds(), true, 1.0f), gap, y);
+                    y += view.getHeight() + gap;
+                }
+            }
+            auto file = outputDir.getChildFile ("S11-overlay" + t + ".png");
+            file.deleteFile();
+            juce::FileOutputStream out (file);
+            if (out.openedOk() && juce::PNGImageFormat().writeImageToStream (sheet, out)) ++written;
+            c.updateSettings ([] (Settings& s) { s.overlayOn = true; });
+            for (const bool narrow : { false, true })
+                shot ("S03-search-overlay" + juce::String (narrow ? "-min" : "") + t, narrow ? w : W, narrow ? h : H, [] (MainComponent& m)
+                {
+                    m.showSettings (Navigator::SettingsSection::devices);
+                    if (auto* v = dynamic_cast<SettingsView*> (findById (&m, "page.settings"))) v->setSearchText (juce::String::fromUTF8 ("画面の端"));
+                });
+            c.updateSettings ([] (Settings& s) { s.overlayOn = false; });
+        }
+        // wave9/voice: マイク補正 while recording, and after a measurement (a muffled mic: lows cut, presence lifted)
+        {
+            MicEqData::testDevicesRunning = true; // the recording state needs a running input
+            juce::String why;
+            c.startMicEqMeasure (why);
+            std::vector<float> in (480), out (480);
+            for (int k = 0; k < 360; ++k)
+            {
+                for (size_t i = 0; i < in.size(); ++i) in[i] = 0.2f * float (std::sin (0.03 * double (k * 480 + int (i))));
+                c.getProcessorForTests().process (in.data(), out.data(), nullptr, int (in.size()));
+            }
+            c.tickForTests();
+            auto showRecording = [] (MainComponent& m)
+            {
+                m.showPage (Navigator::Page::tools);
+                if (auto* v = dynamic_cast<ToolsView*> (findById (&m, "page.tools"))) v->showTool (ToolsView::Tool::micEq);
+            };
+            shot ("S10-miceq-recording-min" + t, w, h, showRecording);
+            c.cancelMicEqMeasure();
+            MicEqData::testDevicesRunning = false;
+            c.updateSettings ([] (Settings& s)
+            {
+                s.micEqGainsDb = { -2.5f, -2.0f, -1.2f, -0.6f, -0.4f, -0.5f, -0.2f, 0.4f, 1.3f, 2.6f, 3.1f, 1.8f, 0.4f, -1.0f };
+                s.micEqAt = "2026-10-04T21:15:00.000+09:00";
+                s.micEqOn = true;
+            });
+            auto showMicEq = [] (MainComponent& m)
+            {
+                m.showPage (Navigator::Page::tools);
+                if (auto* v = dynamic_cast<ToolsView*> (findById (&m, "page.tools"))) v->showTool (ToolsView::Tool::micEq);
+            };
+            shot ("S10-miceq-done" + t, W, H, showMicEq);
+            shot ("S10-miceq-done-min" + t, w, h, showMicEq);
+            c.clearMicEq();
+        }
+        // wave9/stream: the S-03 card 配信用の出力, found by the search, running and with a missing device (test outputs, no device)
+        {
+            StreamData::outputsForTests = { "Headphones (USB Audio)", "CABLE-A Input (VB-Audio Cable A)" };
+            const auto search = [] (MainComponent& m)
+            {
+                m.showSettings (Navigator::SettingsSection::devices);
+                if (auto* v = dynamic_cast<SettingsView*> (findById (&m, "page.settings"))) v->setSearchText (juce::String::fromUTF8 ("配信"));
+            };
+            c.setStreamDevice ("CABLE-A Input (VB-Audio Cable A)");
+            shot ("S03-search-stream" + t, W, H, search);
+            shot ("S03-search-stream-min" + t, w, h, search);
+            c.setStreamDevice ("USB Speaker (unplugged)");
+            shot ("S03-search-stream-lost" + t, W, H, search);
+            c.setStreamDevice ({});
+            StreamData::outputsForTests.clear();
+        }
         for (auto& [section, id] : sections)
             shot ("S03-" + juce::String (id) + t, W, H, [section] (MainComponent& m) { m.showSettings (section); });
         // wave 4: 「詳細な設定」 open, and a search across the sections
@@ -687,6 +777,26 @@ int renderSnapshots (const juce::File& outputDir)
         shot ("S07-min" + t, w, h, [] (MainComponent& m) { m.showEffectPicker (-1); });
         shot ("S09" + t, W, H, [] (MainComponent& m) { m.showSlotDetail (0); });
         shot ("S09-min" + t, w, h, [] (MainComponent& m) { m.showSlotDetail (0); });
+        // wave9/voice: S-09 with 声の大きさで動かす set (the first numeric knob of slot 0 at +60 %), the meter fed by a voice-level tone
+        if (! c.getChain().empty())
+            if (const auto* modInfo = findEffectInfo (c.getChain()[0].type))
+            {
+                std::string modTarget = "wet";
+                for (auto& spec : modInfo->params)
+                    if (! spec.isChoice()) { modTarget = spec.id; break; }
+                c.setSlotMod (0, modTarget, 0.6f);
+                auto& vp = c.getProcessorForTests();
+                std::vector<float> in (480), out (480);
+                for (int b = 0; b < 50; ++b)
+                {
+                    for (size_t i = 0; i < in.size(); ++i) in[i] = 0.1f * float (std::sin (0.04 * double (b * 480 + int (i))));
+                    vp.process (in.data(), out.data(), nullptr, 480);
+                }
+                auto showMod = [] (MainComponent& m) { m.showSlotDetail (0); }; // the meter reads the level when the panel opens
+                shot ("S09-mod" + t, W, H, showMod);
+                shot ("S09-mod-min" + t, w, h, showMod);
+                c.loadPreset ("character-demon-king");
+            }
         shot ("S04" + t, W, H, [] (MainComponent& m) { m.showSetupWizard(); });
         shot ("S04-step2" + t, W, H, [] (MainComponent& m)
         {

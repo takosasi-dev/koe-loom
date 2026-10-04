@@ -86,5 +86,7 @@ private:
     std::unique_ptr<juce::FileChooser> chooser;
     juce::String shownFile;
     juce::Rectangle<int> fileStatus;
+    class ModRow; // 声の大きさで動かす (wave9/voice, INTERFACES.md §11.3)
+    std::unique_ptr<ModRow> modRow;
 };
 } // namespace koe::ui::mainui

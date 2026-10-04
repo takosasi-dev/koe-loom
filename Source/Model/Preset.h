@@ -33,6 +33,9 @@ struct SlotDef
     std::string file;          // "convolution" only: a file name inside paths::irDir(), no folders (INTERFACES.md §9). JSON key "file", optional
     float wet = 1.0f;          // 0..1 how much of the slot's output is heard while ON (プリセットを混ぜる, INTERFACES.md §10).
                                // JSON key "wet", optional, written only when < 1
+    std::string modTarget;     // 声の大きさで変わる効果 (INTERFACES.md §11): "" = none, "wet", or the id of a numeric (non-choice) param
+    float modDepth = 0.0f;     // -1..1: at the loudest the target moves by depth x its whole range (wet: x 1). JSON "mod": {"target", "depth"},
+                               // optional, written only when the target is set
 
     bool operator== (const SlotDef&) const = default;
 };

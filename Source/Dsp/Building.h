@@ -19,6 +19,19 @@ inline float gainToDb (float g) noexcept { return g <= 1.0e-6f ? -120.0f : 20.0f
 inline bool isFiniteSample (float x) noexcept { return std::isfinite (x); }
 inline float msToSamples (float ms, double sr) noexcept { return float (ms * 0.001 * sr); }
 
+/** Bit-identical to std::fmod (x, y) for y > 0 and |x / y| < 2^20, several times faster (MSVC's fmodf is slow; the phase
+    vocoder calls it per bin, wave9/stream bench). x - n*y is exact in double (n has <= 20 bits, y 24) and the true remainder
+    is representable as a float, so the one rounding at the end is exact; the n from the division is corrected by one. */
+inline float fmodExact (float x, float y) noexcept
+{
+    const double dx = x, dy = y;
+    double r = dx - std::trunc (dx / dy) * dy;
+    if (dx >= 0.0) { if (r < 0.0) r += dy; else if (r >= dy) r -= dy; }
+    else if (r > 0.0) r -= dy;
+    else if (r <= -dy) r += dy;
+    return float (r == 0.0 ? std::copysign (0.0, dx) : r); // fmod keeps the sign of x on a zero remainder
+}
+
 /** One-pole smoothing coefficient so that a step settles to ~63 % in timeMs. */
 inline float onePoleCoeff (float timeMs, double sr) noexcept
 {

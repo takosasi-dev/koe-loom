@@ -145,6 +145,8 @@ void AppController::resetSettings()
     d.momentaryRecipes = settings.momentaryRecipes; // they go with the hotkeys
     d.calibratedTrimDb = settings.calibratedTrimDb; // a measurement, not a preference
     d.calibratedAt = settings.calibratedAt;
+    d.micEqGainsDb = settings.micEqGainsDb;         // wave 9: also a measurement (micEqOn goes back to OFF)
+    d.micEqAt = settings.micEqAt;
     replaceSettings (d, false);
 }
 

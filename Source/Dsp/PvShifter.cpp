@@ -35,7 +35,7 @@ constexpr float kTwoPiF = 6.283185307179586f;
 
 inline float princarg (float p) noexcept
 {
-    p = std::fmod (p + dsp::kPi, kTwoPiF);
+    p = dsp::fmodExact (p + dsp::kPi, kTwoPiF); // == std::fmod, faster (wave9/stream)
     if (p < 0) p += kTwoPiF;
     return p - dsp::kPi;
 }

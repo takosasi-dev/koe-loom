@@ -4,8 +4,10 @@
 #include "App/AppController.h"
 #include "App/Tray.h"
 #include "Core/Paths.h"
+#include "Tools/Bench.h"
 #include "Tools/Calibrate.h"
 #include "UI/MainComponent.h"
+#include "UI/Overlay.h"
 #include "UI/Theme.h"
 #include "UI/Widgets.h"
 
@@ -138,7 +140,7 @@ public:
     {
         // after an update the new exe waits here for the old one to exit, then takes the single-instance lock
         koe::updater::waitForOldProcess (juce::JUCEApplicationBase::getCommandLineParameterArray());
-        return hasArg ("--run-tests") || hasArg ("--snapshot") || hasArg ("--calibrate-presets");
+        return hasArg ("--run-tests") || hasArg ("--snapshot") || hasArg ("--calibrate-presets") || hasArg ("--bench-presets");
     }
 
     void anotherInstanceStarted (const juce::String&) override
@@ -170,6 +172,13 @@ public:
             quit();
             return;
         }
+        if (hasArg ("--bench-presets")) // wave 9 (INTERFACES.md §11): CPU cost of every built-in preset, owner wave9/stream
+        {
+            isolateDataDir ("KoeLoomBench");
+            setApplicationReturnValue (koe::tools::benchPresets (argAfter ("--bench-presets")));
+            quit();
+            return;
+        }
 
         // ---- the app ----
         koe::paths::logsDir().createDirectory();
@@ -187,6 +196,7 @@ public:
         controller->onShowWindowRequest = [this] { if (window != nullptr) window->bringToFront(); };
         controller->onQuitRequest = [this] { requestQuitFromTray(); };
         controller->addChangeListener (tray.get());
+        overlay = koe::ui::makeVoiceOverlay (*controller); // wave 9 (INTERFACES.md §11): its own top-most window, owner wave9/overlay
         koe::updater::removeOldExe (juce::File::getSpecialLocation (juce::File::currentExecutableFile)); // a finished update
 
         const bool hidden = controller->getSettings().startMinimized || hasArg ("--autostart"); // F-09-2
@@ -196,6 +206,7 @@ public:
 
     void shutdown() override
     {
+        overlay.reset();
         if (controller != nullptr)
         {
             controller->removeChangeListener (tray.get());
@@ -254,6 +265,7 @@ private:
     std::unique_ptr<koe::ui::KoeLookAndFeel> lnf;
     std::unique_ptr<MainWindow> window;
     std::unique_ptr<TrayHolder> tray;
+    std::unique_ptr<juce::Component> overlay;
 };
 
 START_JUCE_APPLICATION (KoeLoomApplication)

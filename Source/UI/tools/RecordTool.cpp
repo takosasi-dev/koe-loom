@@ -3,6 +3,7 @@
 
 #include "UI/main/ToolsView.h"
 
+#include "Core/Constants.h"
 #include "Core/Paths.h"
 #include "UI/Theme.h"
 #include "UI/Widgets.h"
@@ -47,7 +48,11 @@ public:
             else nav.showToast (ja ("録音したファイルが見つかりません。"));
         };
         openButton.setTooltip (ja ("Windows の既定のアプリで開きます"));
-        for (auto* b : { &toggleButton, &folderButton, &openButton }) addAndMakeVisible (*b);
+        // wave9/share: the last file into the soundboard (INTERFACES.md §11.3)
+        soundboardButton.setComponentID ("record.soundboard");
+        soundboardButton.setTooltip (ja ("最後のファイルを、サウンドボードの空いている枠に入れます（空きが無ければ枠を選びます）"));
+        soundboardButton.onClick = [this] { addToSoundboard(); };
+        for (auto* b : { &toggleButton, &folderButton, &openButton, &soundboardButton }) addAndMakeVisible (*b);
         refresh();
     }
 
@@ -102,6 +107,8 @@ public:
         folderButton.setBounds (buttons.removeFromLeft (folderButton.preferredWidth()));
         buttons.removeFromLeft (Theme::space2);
         openButton.setBounds (buttons.removeFromLeft (openButton.preferredWidth()));
+        buttons.removeFromLeft (Theme::space2);
+        soundboardButton.setBounds (buttons.removeFromLeft (std::min (soundboardButton.preferredWidth(), buttons.getWidth())));
         r.removeFromTop (Theme::space3);
         pathRow = r.removeFromTop (Theme::space5 + Theme::space1);
     }
@@ -121,7 +128,54 @@ private:
         toggleButton.setIcon (rec ? Icon::stop : Icon::mic);
         toggleButton.setStyle (rec ? PillButton::Style::danger : PillButton::Style::primary);
         openButton.setEnabled (ctl.getLastWavFile() != juce::File());
+        soundboardButton.setEnabled (ctl.getLastWavFile() != juce::File() && ! rec);
+        if (pendingSlot >= 0) // the soundboard loads on its own thread: tell how it went (60 s / 200 MB / broken file, E-12..E-14)
+        {
+            const auto st = ctl.getSoundboard().getSlotState (pendingSlot);
+            if (st.status == SoundSlotState::Status::ready)
+                nav.showToast (ja ("サウンドボードのスロット ") + juce::String (pendingSlot + 1) + ja (" に入れました"));
+            else if (st.status == SoundSlotState::Status::error || st.status == SoundSlotState::Status::missing)
+                nav.showToast (ja ("サウンドボードに入れられませんでした：") + st.error);
+            if (st.status != SoundSlotState::Status::loading) pendingSlot = -1;
+        }
         repaint();
+    }
+
+    void addToSoundboard()
+    {
+        const auto f = ctl.getLastWavFile();
+        if (! f.existsAsFile())
+        {
+            nav.showToast (ja ("録音したファイルが見つかりません。"));
+            return;
+        }
+        auto& sb = ctl.getSoundboard();
+        for (int i = 0; i < kSoundboardSlots; ++i)
+            if (sb.getSlotDef (i).file.isEmpty()) return assignTo (i);
+        if (! isShowing()) // a menu needs a window on screen (tests and snapshots never get here with one)
+        {
+            nav.showToast (ja ("サウンドボードに空いている枠がありません。"));
+            return;
+        }
+        juce::PopupMenu m;
+        m.addSectionHeader (ja ("空いている枠がありません。置き換える枠を選んでください"));
+        for (int i = 0; i < kSoundboardSlots; ++i)
+            m.addItem (i + 1, ja ("スロット ") + juce::String (i + 1) + ja ("：") + juce::File (sb.getSlotDef (i).file).getFileName());
+        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (soundboardButton),
+                         [safe = juce::Component::SafePointer<RecordTool> (this)] (int r)
+                         {
+                             if (safe != nullptr && r > 0) safe->assignTo (r - 1);
+                         });
+    }
+
+    void assignTo (int slot)
+    {
+        const auto f = ctl.getLastWavFile();
+        if (! f.existsAsFile()) return;
+        ctl.getSoundboard().assignFile (slot, f); // async: loading -> ready / error
+        ctl.saveSoundboard();
+        pendingSlot = slot;
+        refresh();
     }
 
     AppController& ctl;
@@ -129,6 +183,8 @@ private:
     PillButton toggleButton { ja ("録音開始"), PillButton::Style::primary, Icon::mic };
     PillButton folderButton { ja ("フォルダを開く"), PillButton::Style::outline, Icon::folder };
     PillButton openButton { ja ("再生"), PillButton::Style::outline, Icon::play };
+    PillButton soundboardButton { ja ("サウンドボードに入れる"), PillButton::Style::outline, Icon::plus };
+    int pendingSlot = -1; // wave9/share: waiting for this slot to load
     juce::Rectangle<int> titleRow, descRow, timeRow, stateRow, hotkeyRow, lastLabelRow, lastRow, pathRow;
 };
 } // namespace

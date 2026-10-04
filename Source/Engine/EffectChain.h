@@ -23,6 +23,10 @@ struct EffectInfo;
 class EffectChain
 {
 public:
+    static constexpr int kModNone = -1, kModWet = -2;
+    /** SlotDef::modTarget -> Slot::modIndex (kModNone when the type has no such numeric param). */
+    static int modIndexFor (const EffectInfo& info, const std::string& target) noexcept;
+
     struct Slot
     {
         std::string type;
@@ -35,6 +39,8 @@ public:
         std::atomic<int> pendingTrigger { 0 };   // EffectTrigger value, 0 = none
         std::atomic<float> wet { 1.0f };         // 0..1, how much of the slot's output replaces its input while ON
                                                  // (プリセットを混ぜる, INTERFACES.md §10.1). Glides like the ON/OFF fade.
+        std::atomic<int> modIndex { kModNone };  // 声の大きさで変わる効果 (INTERFACES.md §11): kModNone, kModWet or a param index
+        std::atomic<float> modDepth { 0.0f };    // -1..1 (SlotDef::modDepth)
 
         // ---- written by the audio thread, read by the message thread ----
         std::atomic<bool> autoStopped { false }; // NaN/Inf auto-bypass (F-04-11) or watchdog (§5.6)
@@ -64,6 +70,10 @@ public:
     /** Audio thread: clear every running effect's state (used when the voice changer is switched back ON). */
     void resetAll();
 
+    /** The voice level the modulated slots follow, 0 (kModLowDb or below) .. 1 (kModHighDb or above). Any thread.
+        Only tracked while some slot has a modulation; 0 otherwise. */
+    float getModLevel() const noexcept { return modLevel.load (std::memory_order_relaxed); }
+
     /** Sum of the latencies of running slots (F-04-12). Any thread. */
     int getLatencySamples() const noexcept;
 
@@ -79,6 +89,8 @@ private:
 
     std::vector<std::unique_ptr<Slot>> slots;
     float fadeStep = 1.0f / 960.0f;
+    float modAttack = 0.0f, modRelease = 0.0f, modEnv = 0.0f; // envelope follower of the chain input (audio thread)
+    std::atomic<float> modLevel { 0.0f };
     int onsetSamples = 240;
     // tiny SPSC ring for auto-stop events
     std::array<std::atomic<int>, 16> events {};

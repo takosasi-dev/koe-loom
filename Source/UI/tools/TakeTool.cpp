@@ -36,7 +36,17 @@ public:
         };
         clearButton.onClick = [this] { ctl.clearTestTake(); refresh(); };
         clearButton.setTooltip (ja ("試し録りを消します（保存はしていません）"));
-        for (auto* b : { &recordButton, &playButton, &clearButton }) addAndMakeVisible (*b);
+        // wave9/share: the take through the working preset into a WAV (INTERFACES.md §11.3)
+        renderButton.setComponentID ("take.render");
+        renderButton.setTooltip (ja ("いまのプリセットで加工した試し録りを WAV に保存します（録音の道具からサウンドボードに入れられます）"));
+        renderButton.onClick = [this]
+        {
+            juce::String why;
+            const auto f = ctl.renderTestTakeToFile (why);
+            nav.showToast (f != juce::File() ? ja ("「") + f.getFileName() + ja ("」に保存しました") : why);
+            refresh();
+        };
+        for (auto* b : { &recordButton, &playButton, &clearButton, &renderButton }) addAndMakeVisible (*b);
         refresh();
     }
 
@@ -99,6 +109,8 @@ public:
         playButton.setBounds (buttons.removeFromLeft (w));
         buttons.removeFromLeft (Theme::space2);
         clearButton.setBounds (buttons.removeFromLeft (clearButton.preferredWidth()));
+        buttons.removeFromLeft (Theme::space2);
+        renderButton.setBounds (buttons.removeFromLeft (std::min (renderButton.preferredWidth(), buttons.getWidth())));
         r.removeFromTop (Theme::space4);
         barText = r.removeFromTop (Theme::space4);
         r.removeFromTop (Theme::space1);
@@ -128,6 +140,7 @@ private:
         playButton.setStyle (playing ? PillButton::Style::danger : PillButton::Style::accentOutline);
         playButton.setEnabled (state != AppController::TakeState::empty); // while recording: stops it and plays
         clearButton.setEnabled (state != AppController::TakeState::empty);
+        renderButton.setEnabled (state == AppController::TakeState::ready || playing);
         repaint();
     }
 
@@ -136,6 +149,7 @@ private:
     PillButton recordButton { ja ("録る"), PillButton::Style::primary, Icon::mic };
     PillButton playButton { ja ("再生"), PillButton::Style::accentOutline, Icon::play };
     PillButton clearButton { ja ("消す"), PillButton::Style::outline, Icon::close };
+    PillButton renderButton { ja ("加工して保存"), PillButton::Style::outline, Icon::folder };
     juce::Rectangle<int> titleRow, descRow, noteRow, barText, barRow, hintRow;
 };
 } // namespace

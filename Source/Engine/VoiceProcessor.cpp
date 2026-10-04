@@ -256,6 +256,9 @@ void VoiceProcessor::processBlock (const float* in, float* outL, float* outR, in
         }
     }
 
+    // 1c) wave 9 (INTERFACES.md §11): マイクの癖の補正
+    if (auto* f = inputFilter.load (std::memory_order_acquire)) f->process (bufIn.data(), n);
+
     // 2) noise suppression, crossfaded on toggle because it changes the path delay
     const bool nsWant = noiseOn.load (std::memory_order_relaxed) && ns.isAvailable();
     if (nsWant && nsMix.value <= 0.0f && ! nsMix.isRamping()) ns.reset(); // stale FIFO from last time
@@ -353,6 +356,8 @@ void VoiceProcessor::processBlock (const float* in, float* outL, float* outR, in
     if (auto* sink = monitor.load (std::memory_order_acquire)) sink->push (bufMon.data(), n);
     for (auto& t : outputTaps)
         if (auto* tap = t.load (std::memory_order_acquire)) tap->push (bufTap.data(), n);
+    for (auto& t : sentTaps)
+        if (auto* tap = t.load (std::memory_order_acquire)) tap->push (outL, n);
 }
 
 bool VoiceProcessor::retireCurrentSet() noexcept

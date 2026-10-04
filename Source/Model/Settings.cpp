@@ -63,6 +63,8 @@ Settings clampSettings (const Settings& in, juce::StringArray* clampedKeys)
     range ("gateReleaseMs", s.gateReleaseMs, kGateReleaseMs);
     range ("outputGainDb", s.outputGainDb, kOutputGainDb);
     range ("monitorVolumeDb", s.monitorVolumeDb, kMonitorVolumeDb);
+    range ("streamVolumeDb", s.streamVolumeDb, kStreamVolumeDb);
+    range ("overlaySeconds", s.overlaySeconds, kOverlaySeconds);
     range ("duckingDb", s.duckingDb, kDuckingDb);
     range ("pitchMinHz", s.pitchMinHz, kPitchMinHz);
     range ("pitchMaxHz", s.pitchMaxHz, kPitchMaxHz);
@@ -97,6 +99,7 @@ Settings clampSettings (const Settings& in, juce::StringArray* clampedKeys)
     choice ("animations", s.animations, 0, 2, d.animations);
     choice ("knobSensitivity", s.knobSensitivity, 0, 2, d.knobSensitivity);
     choice ("layoutStyle", s.layoutStyle, 0, 2, d.layoutStyle);
+    choice ("overlayCorner", s.overlayCorner, 0, 3, d.overlayCorner);
     if (s.meterFps != 30 && s.meterFps != 60) { s.meterFps = d.meterFps; changed.add ("meterFps"); }
     if (std::find (std::begin (kUiScalePercents), std::end (kUiScalePercents), s.uiScalePercent) == std::end (kUiScalePercents))
     {
@@ -136,6 +139,11 @@ Settings clampSettings (const Settings& in, juce::StringArray* clampedKeys)
     for (auto& [id, db] : s.calibratedTrimDb)
         if (isValidPresetId (id.toStdString()) && std::isfinite (db)) trims[id] = kTrimDb.clamp (db);
     if (trims != s.calibratedTrimDb) { s.calibratedTrimDb = std::move (trims); changed.add ("calibratedTrimDb"); }
+
+    auto eq = s.micEqGainsDb;
+    if (! eq.empty() && int (eq.size()) != kMicEqBands) eq.clear();
+    for (auto& g : eq) g = std::isfinite (g) ? std::clamp (g, -kMicEqMaxDb, kMicEqMaxDb) : 0.0f;
+    if (eq != s.micEqGainsDb) { s.micEqGainsDb = std::move (eq); changed.add ("micEqGainsDb"); }
 
     std::vector<HotkeyBinding> keys;
     for (auto h : s.hotkeys)
@@ -249,7 +257,19 @@ Settings loadSettings (const juce::File& file, SettingsLoadResult& result)
     r.get ("appSwitchOn", s.appSwitchOn);
     r.get ("appSwitchRestore", s.appSwitchRestore);
     r.get ("calibratedAt", s.calibratedAt);
+    r.get ("micEqOn", s.micEqOn);
+    r.get ("micEqAt", s.micEqAt);
+    r.get ("streamDevice", s.streamDevice);
+    r.get ("streamVolumeDb", s.streamVolumeDb);
+    r.get ("overlayOn", s.overlayOn);
+    r.get ("overlayCorner", s.overlayCorner);
+    r.get ("overlaySeconds", s.overlaySeconds);
 
+    if (auto* eq = root["micEqGainsDb"].getArray())
+    {
+        for (auto& v : *eq)
+            s.micEqGainsDb.push_back (v.isInt() || v.isInt64() || v.isDouble() ? float (double (v)) : 0.0f);
+    }
     if (auto* mr = root["momentaryRecipes"].getArray())
     {
         for (auto& v : *mr)
@@ -403,6 +423,16 @@ bool saveSettings (const Settings& s, const juce::File& file)
     for (auto& [id, db] : s.calibratedTrimDb) trims->setProperty (id, db);
     o->setProperty ("calibratedTrimDb", juce::var (trims));
     o->setProperty ("calibratedAt", s.calibratedAt);
+    o->setProperty ("micEqOn", s.micEqOn);
+    juce::Array<juce::var> eq;
+    for (auto g : s.micEqGainsDb) eq.add (g);
+    o->setProperty ("micEqGainsDb", eq);
+    o->setProperty ("micEqAt", s.micEqAt);
+    o->setProperty ("streamDevice", s.streamDevice);
+    o->setProperty ("streamVolumeDb", s.streamVolumeDb);
+    o->setProperty ("overlayOn", s.overlayOn);
+    o->setProperty ("overlayCorner", s.overlayCorner);
+    o->setProperty ("overlaySeconds", s.overlaySeconds);
 
     // replaceWithText writes a temporary file next to the target and then replaces it (atomic save)
     file.getParentDirectory().createDirectory();

@@ -6,6 +6,8 @@
 #include "Effects/EffectRegistry.h"
 #include "Engine/EffectChain.h"
 #include "Engine/VoiceProcessor.h"
+#include "Model/Preset.h"
+#include "Model/Settings.h"
 #include "Tests/TestUtil.h"
 
 #include <functional>
@@ -681,8 +683,166 @@ public:
     }
 };
 
+class Wave9FoundationTests : public juce::UnitTest
+{
+public:
+    Wave9FoundationTests() : juce::UnitTest ("Wave 9 foundation", "Engine") {}
+
+    void runTest() override
+    {
+        const auto in = sine (220.0, 1.0, 0.3f);
+        auto fresh = [] (VoiceProcessor& vp) { plainSetup (vp); vp.prepare (kSr, kBlock); };
+        auto run = [] (EffectChain& chain, std::vector<float> x)
+        {
+            for (size_t pos = 0; pos < x.size(); pos += kBlock) chain.process (x.data() + pos, int (std::min<size_t> (kBlock, x.size() - pos)));
+            return x;
+        };
+
+        beginTest ("sent tap = exactly what the virtual mic gets, silence while outputMuted");
+        {
+            VoiceProcessor vp;
+            fresh (vp);
+            Wave8HookTests::Tap ts;
+            vp.setTap (VoiceProcessor::TapPoint::sent, 0, &ts);
+            auto out = render (vp, in);
+            expect (ts.got == out);
+            ts.got.clear();
+            vp.setOutputMuted (true);
+            out = render (vp, in);
+            expect (ts.got == out);
+            expectLessOrEqual (peakDb (ts.got.data() + int (kSr * 0.1), int (kSr * 0.8)), -120.0f);
+        }
+
+        beginTest ("input filter processes the voice before everything else; nullptr = the old path");
+        {
+            VoiceProcessor vp, ref;
+            fresh (vp);
+            fresh (ref);
+            Wave8HookTests::Halve h;
+            vp.setInputFilter (&h);
+            auto out = render (vp, in);
+            auto base = render (ref, in);
+            expectEquals (h.calls, int ((in.size() + kBlock - 1) / kBlock));
+            const int a = int (kSr * 0.5), n = int (kSr * 0.4);
+            expectWithinAbsoluteError (rmsDb (out.data() + a, n), rmsDb (base.data() + a, n) - 6.02f, 0.1f);
+            vp.setInputFilter (nullptr);
+            VoiceProcessor again;
+            fresh (again);
+            expect (render (again, in) == base);
+        }
+
+        beginTest ("mod on wet follows the voice level: quiet passes through, loud brings the effect in");
+        {
+            SlotDef d;
+            d.type = "distortion";
+            d.wet = 0.0f;
+            d.modTarget = "wet";
+            d.modDepth = 1.0f;
+            auto chain = EffectChain::create ({ d }, kSr, kBlock);
+            expectEquals (chain->slot (0).modIndex.load(), EffectChain::kModWet);
+            std::vector<float> quiet (in.size());
+            for (size_t i = 0; i < in.size(); ++i) quiet[i] = in[i] * 0.001f; // about -70 dBFS
+            expect (run (*chain, quiet) == quiet);
+            expectEquals (chain->getModLevel(), 0.0f);
+            expect (run (*chain, in) != in);
+            expectGreaterThan (chain->getModLevel(), 0.9f);
+
+            d.modTarget.clear();
+            auto plain = EffectChain::create ({ d }, kSr, kBlock);
+            expect (run (*plain, in) == in);
+            expectEquals (plain->getModLevel(), 0.0f);
+        }
+
+        beginTest ("mod on a numeric param; modIndexFor refuses choices and unknown ids");
+        {
+            auto* info = findEffectInfo ("distortion");
+            expect (info != nullptr);
+            int numeric = -1, choice = -1;
+            for (int i = 0; i < int (info->params.size()); ++i)
+                (info->params[size_t (i)].isChoice() ? choice : numeric) = i;
+            expect (numeric >= 0);
+            expectEquals (EffectChain::modIndexFor (*info, info->params[size_t (numeric)].id), numeric);
+            if (choice >= 0) expectEquals (EffectChain::modIndexFor (*info, info->params[size_t (choice)].id), EffectChain::kModNone);
+            expectEquals (EffectChain::modIndexFor (*info, "nope"), EffectChain::kModNone);
+            expectEquals (EffectChain::modIndexFor (*info, ""), EffectChain::kModNone);
+
+            SlotDef d;
+            d.type = "distortion";
+            d.modTarget = info->params[size_t (numeric)].id;
+            d.modDepth = 1.0f;
+            auto chain = EffectChain::create ({ d }, kSr, kBlock);
+            SlotDef plainDef = d;
+            plainDef.modTarget.clear();
+            auto plain = EffectChain::create ({ plainDef }, kSr, kBlock);
+            const auto y = run (*chain, in), z = run (*plain, in);
+            expect (y != z);
+            for (auto v : y) if (! std::isfinite (v)) { expect (false, "non-finite"); break; }
+        }
+
+        beginTest ("preset JSON: mod round-trips, bad targets are dropped and counted");
+        {
+            Preset p;
+            p.id = "user-mod";
+            p.name = "mod";
+            SlotDef d = *makeDefaultSlot ("distortion");
+            d.modTarget = "wet";
+            d.modDepth = -0.5f;
+            p.chain.push_back (d);
+            PresetLoadReport r;
+            auto back = parsePreset (serializePreset (p), r);
+            expect (back.has_value() && back->chain.size() == 1);
+            expect (back->chain[0].modTarget == "wet");
+            expectEquals (back->chain[0].modDepth, -0.5f);
+            expectEquals (r.valuesClamped, 0);
+
+            auto json = juce::JSON::parse (serializePreset (p));
+            auto* slot = json["chain"][0].getDynamicObject();
+            auto* mod = new juce::DynamicObject();
+            mod->setProperty ("target", "nope");
+            mod->setProperty ("depth", 0.5);
+            slot->setProperty ("mod", juce::var (mod));
+            PresetLoadReport r2;
+            back = parsePreset (juce::JSON::toString (json), r2);
+            expect (back.has_value() && back->chain[0].modTarget.empty());
+            expectEquals (r2.valuesClamped, 1);
+
+            p.chain[0].modTarget.clear();
+            expect (! serializePreset (p).contains ("\"target\""), serializePreset (p));
+        }
+
+        beginTest ("settings: wave 9 keys round-trip; mic EQ gains of the wrong size are dropped, others clamped");
+        {
+            Settings s;
+            s.micEqOn = true;
+            s.micEqGainsDb.assign (size_t (kMicEqBands), 1.5f);
+            s.micEqGainsDb[0] = 20.0f;
+            s.micEqAt = "2026-10-04T20:00:00";
+            s.streamDevice = "Speakers";
+            s.streamVolumeDb = -3.0f;
+            s.overlayOn = true;
+            s.overlayCorner = 2;
+            s.overlaySeconds = 3.0f;
+            auto c = clampSettings (s);
+            expectEquals (c.micEqGainsDb[0], kMicEqMaxDb);
+            auto f = juce::File::createTempFile (".json");
+            expect (saveSettings (c, f));
+            SettingsLoadResult lr;
+            expect (loadSettings (f, lr) == c);
+            f.deleteFile();
+
+            s.micEqGainsDb.resize (3);
+            s.overlayCorner = 9;
+            c = clampSettings (s);
+            expect (c.micEqGainsDb.empty());
+            expectEquals (c.overlayCorner, 0);
+            expect (Settings().micEqGainsDb.empty() && ! Settings().overlayOn && Settings().streamDevice.isEmpty());
+        }
+    }
+};
+
 static ShifterTests shifterTests;
 static Wave8HookTests wave8HookTests;
+static Wave9FoundationTests wave9FoundationTests;
 static DynamicsTests dynamicsTests;
 static ProcessorTests processorTests;
 } // namespace koe

@@ -156,16 +156,23 @@ public:
     void setMonitorSink (IMonitorSink* sink) noexcept { monitor.store (sink); }
 
     // ---- wave 8 hooks (INTERFACES.md §10.1). Message thread sets, audio thread reads; nullptr = none. ----
-    enum class TapPoint { input, output };
+    enum class TapPoint { input, output, sent };
     static constexpr int kTapsPerPoint = 4;
     /** input: the device input as it arrives (before the input source, gain and everything else; may hold non-finite
-        samples). output: what goes to the virtual mic (after the limiter and fade-in, before setOutputMuted). */
+        samples). output: what goes to the virtual mic (after the limiter and fade-in, before setOutputMuted).
+        sent (wave 9, INTERFACES.md §11): exactly what the virtual mic gets (after setOutputMuted). */
     void setTap (TapPoint point, int index, IAudioTap* tap) noexcept
-    { (point == TapPoint::input ? inputTaps : outputTaps)[size_t (index)].store (tap, std::memory_order_release); }
+    {
+        auto& taps = point == TapPoint::input ? inputTaps : (point == TapPoint::output ? outputTaps : sentTaps);
+        taps[size_t (index)].store (tap, std::memory_order_release);
+    }
     void setInputSource (IInputSource* src) noexcept { inputSource.store (src, std::memory_order_release); }
     void setPostProcessor (IVoicePostProcessor* p) noexcept { postProcessor.store (p, std::memory_order_release); }
     /** Silences the virtual mic only (30 ms fade); the monitor and the output tap keep the sound. */
     void setOutputMuted (bool muted) noexcept { outputMuted.store (muted); }
+    /** wave 9 (マイクの癖の補正, INTERFACES.md §11): processes the input in place after the input gain and low cut, before
+        noise suppression (so everything after, monitor included, hears the corrected voice). Audio thread. */
+    void setInputFilter (IVoicePostProcessor* f) noexcept { inputFilter.store (f, std::memory_order_release); }
 
     // ---- state for the UI ----
     struct MeterValues { float inputPeak = 0, outputPeak = 0; bool inputClip = false, outputClip = false; };
@@ -236,7 +243,8 @@ private:
     std::atomic<IScaleLayerPitch*> scalePitch { nullptr };
     std::atomic<IAuxSource*> aux { nullptr };
     std::atomic<IMonitorSink*> monitor { nullptr };
-    std::array<std::atomic<IAudioTap*>, kTapsPerPoint> inputTaps {}, outputTaps {};
+    std::array<std::atomic<IAudioTap*>, kTapsPerPoint> inputTaps {}, outputTaps {}, sentTaps {};
+    std::atomic<IVoicePostProcessor*> inputFilter { nullptr };
     std::atomic<IInputSource*> inputSource { nullptr };
     std::atomic<IVoicePostProcessor*> postProcessor { nullptr };
     std::atomic<bool> outputMuted { false };

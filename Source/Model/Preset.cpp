@@ -114,6 +114,22 @@ std::optional<SlotDef> parseSlot (const juce::var& v, int& clamped)
         if (! number || slot->wet != x) ++clamped;
     }
 
+    if (const auto& m = v["mod"]; ! m.isVoid())
+    {
+        const auto target = m["target"].toString().toStdString();
+        const auto& d = m["depth"];
+        const bool number = d.isInt() || d.isInt64() || d.isDouble();
+        const float x = number ? float (double (d)) : 0.0f;
+        const int pi = info->paramIndex (target);
+        if (m.isObject() && (target == "wet" || (pi >= 0 && ! info->params[size_t (pi)].isChoice())) && number && std::isfinite (x))
+        {
+            slot->modTarget = target;
+            slot->modDepth = std::clamp (x, -1.0f, 1.0f);
+            if (slot->modDepth != x) ++clamped;
+        }
+        else ++clamped; // unknown target, choice param, wrong type: dropped
+    }
+
     const auto& params = v["params"];
     if (! params.isObject()) return slot;
     for (size_t i = 0; i < info->params.size(); ++i)
@@ -358,6 +374,13 @@ juce::String serializePreset (const Preset& preset)
         so->setProperty ("params", juce::var (po));
         if (s.type == "convolution" && ! s.file.empty()) so->setProperty ("file", juce::String::fromUTF8 (s.file.c_str()));
         if (s.wet < 1.0f) so->setProperty ("wet", s.wet);
+        if (! s.modTarget.empty())
+        {
+            auto* mo = new juce::DynamicObject();
+            mo->setProperty ("target", juce::String (s.modTarget));
+            mo->setProperty ("depth", toVar (s.modDepth));
+            so->setProperty ("mod", juce::var (mo));
+        }
         chain.add (juce::var (so));
     }
     o->setProperty ("chain", chain);
