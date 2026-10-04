@@ -73,7 +73,7 @@ void addLicense (VStack& v, const juce::String& name, const juce::String& use, c
 
 void buildDiscordSetup (VStack& v)
 {
-    v.addText (ja ("KoeLoom の声を Discord で使うための設定です。出力先（設定の「デバイス」）は「CABLE Input」にしておきます。"), Theme::fontS, Tone::sub);
+    v.addText (ja ("KoeLoom の声を Discord で使うための設定です。出力先（設定の「デバイス」）は「CABLE Input」（Windows によっては「スピーカー (VB-Audio Virtual Cable)」と表示されます）にしておきます。"), Theme::fontS, Tone::sub);
     addSteps (v, discordSteps());
     v.addText (discordRecommended(), Theme::fontS);
     v.addText (ja ("Discord の画面の項目名は、Discord の更新で変わることがあります。"), Theme::fontXS, Tone::sub);

@@ -279,7 +279,7 @@ struct SetupWizard::Impl final : juce::ChangeListener, juce::Timer, juce::Compon
         auto& v = bodies[0];
         found = &addNote (v, ja ("仮想ケーブル（VB-CABLE）を検出しました。"), Tone::ok);
         found->setComponentID ("setup.cableFound");
-        foundText = &v.addText (ja ("加工した声は「CABLE Input」に送られます。Discord では、対になる「CABLE Output」をマイクとして選びます。"));
+        foundText = &v.addText (ja ("加工した声は仮想ケーブル（VB-Audio Virtual Cable）に送られます。Discord では、対になる「CABLE Output」をマイクとして選びます。"));
         missing = &addNote (v, ja ("仮想ケーブル（VB-CABLE）が見つかりません。"), Tone::warn);
         missing->setComponentID ("setup.cableMissing");
         missingParts.add (&v.addText (ja ("KoeLoom の声を Discord に届けるには、無料の仮想オーディオケーブル「VB-CABLE」が要ります。公式サイトから入手して導入してください。"
@@ -323,7 +323,7 @@ struct SetupWizard::Impl final : juce::ChangeListener, juce::Timer, juce::Compon
     void buildDevices()
     {
         auto& v = bodies[1];
-        v.addText (ja ("ふだん話すマイクと、加工した声の送り先を選びます。送り先には「CABLE Input」を選びます。あとから設定画面でも変えられます。"), Theme::fontS, Tone::sub);
+        v.addText (ja ("ふだん話すマイクと、加工した声の送り先を選びます。送り先には「CABLE Input」（Windows によっては「スピーカー (VB-Audio Virtual Cable)」と表示されます）を選びます。あとから設定画面でも変えられます。"), Theme::fontS, Tone::sub);
         auto in = deviceRow ("マイク（入力）", ja ("話すときに使うマイクです"), inputCombo, inputStatus, "setup.input");
         auto out = deviceRow ("出力先（仮想マイク）", ja ("Discord の入力デバイスには、対になる「CABLE Output」を選びます"), outputCombo, outputStatus, "setup.output");
         for (auto* row : { &in, &out })
@@ -423,7 +423,7 @@ struct SetupWizard::Impl final : juce::ChangeListener, juce::Timer, juce::Compon
         test->meter.setLevel (db);
         heardTicks = db > kHeardDb ? 30 : juce::jmax (0, heardTicks - 1); // keep "届いています" for ~1 s
         if (heardTicks > 0) test->setResult (ja ("音が届いています"), Tone::ok);
-        else test->setResult (ja ("まだ届いていません。出力先が「CABLE Input」か確かめてください。"), Tone::sub);
+        else test->setResult (ja ("まだ届いていません。出力先が仮想ケーブル（VB-Audio Virtual Cable）か確かめてください。"), Tone::sub);
     }
 
     // ------------------------------------------------------------------------------- navigation
@@ -473,13 +473,13 @@ struct SetupWizard::Impl final : juce::ChangeListener, juce::Timer, juce::Compon
         }
         else
         {
-            outputStatus->setText (out.isEmpty() ? ja ("未選択です。「CABLE Input」を選んでください") : ja ("仮想ケーブルではありません。Discord に声が届かない可能性があります"));
+            outputStatus->setText (out.isEmpty() ? ja ("未選択です。VB-Audio Virtual Cable の再生デバイス（CABLE Input）を選んでください") : ja ("仮想ケーブルではありません。Discord に声が届かない可能性があります"));
             outputStatus->setTone (Tone::warn);
             outputStatus->setIcon (Icon::warning);
         }
 
         steps.current = step;
-        steps.items[0] = { ja ("仮想ケーブルを確認"), cable ? ja ("CABLE Input を検出しました") : ja ("まだ見つかりません"), cable };
+        steps.items[0] = { ja ("仮想ケーブルを確認"), cable ? ja ("仮想ケーブルを検出しました") : ja ("まだ見つかりません"), cable };
         const auto devText = (in.isNotEmpty() ? in : ja ("未選択")) + ja (" → ") + (out.isNotEmpty() ? out : ja ("未選択"));
         steps.items[1] = { ja ("マイクと出力先を選ぶ"), step > 1 ? devText : ja ("使うマイクと、声の送り先"), in.isNotEmpty() && AppController::isCableInputName (out) };
         steps.items[2] = { ja ("Discord を設定する"), ja ("Discord 側の設定とテスト"), true };

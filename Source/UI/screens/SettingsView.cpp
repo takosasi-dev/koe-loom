@@ -721,7 +721,7 @@ struct SettingsView::Impl final : juce::ChangeListener, juce::Timer
         }
         else
         {
-            output.status->setText (out.isEmpty() ? (cable ? ja ("出力先が未選択です。「CABLE Input」を選んでください")
+            output.status->setText (out.isEmpty() ? (cable ? ja ("出力先が未選択です。VB-Audio Virtual Cable の再生デバイス（CABLE Input）を選んでください")
                                                            : ja ("仮想ケーブル（VB-CABLE）が見つかりません。導入すると、ここで選べます"))
                                                   : ja ("仮想ケーブルではありません。Discord に声が届かない可能性があります"));
             output.status->setTone (Tone::warn);

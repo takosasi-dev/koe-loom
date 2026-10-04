@@ -63,9 +63,9 @@ public:
     void setOutputDevice (const juce::String& name);
     void setMonitorDevice (const juce::String& name);
     void rescanDevices();
-    bool isVirtualCableInstalled() const;                 // an output containing "CABLE Input" exists (F-10-1)
-    static bool isCableInputName (const juce::String&);   // "CABLE Input"  (play side)
-    static bool isCableOutputName (const juce::String&);  // "CABLE Output" (record side)
+    bool isVirtualCableInstalled() const;                 // an output that is VB-CABLE's play side exists (F-10-1)
+    static bool isCableInputName (const juce::String&);   // play side: "CABLE Input", "CABLE In 16 Ch", "スピーカー (VB-Audio Virtual Cable)"
+    static bool isCableOutputName (const juce::String&);  // record side: "CABLE Output", or another input named after the driver
     juce::Array<double> getAvailableSampleRates() const;
     juce::Array<int> getAvailableBufferSizes() const;
     void setSampleRate (double rate);                     // F-01-8

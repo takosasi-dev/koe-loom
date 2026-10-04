@@ -57,6 +57,19 @@ public:
             c.shutdown();
         }
 
+        beginTest ("VB-CABLE names: the Japanese \"スピーカー (VB-Audio Virtual Cable)\" and the 16 Ch side count as the play side");
+        {
+            const juce::String speaker = juce::String::fromUTF8 ("スピーカー (VB-Audio Virtual Cable)");
+            for (auto& n : { juce::String ("CABLE Input (VB-Audio Virtual Cable)"), juce::String ("CABLE In 16 Ch (VB-Audio Virtual Cable)"), speaker })
+                expect (AppController::isCableInputName (n), n);
+            expect (! AppController::isCableInputName ("CABLE Output (VB-Audio Virtual Cable)"));
+            expect (AppController::isCableOutputName ("CABLE Output (VB-Audio Virtual Cable)"));
+            expect (AppController::isCableOutputName (juce::String::fromUTF8 ("マイク (VB-Audio Virtual Cable)")));
+            expect (! AppController::isCableOutputName ("CABLE In 16 Ch (VB-Audio Virtual Cable)"));
+            for (auto& n : { juce::String ("Speakers (Realtek(R) Audio)"), juce::String ("VoiceMeeter Input (VB-Audio VoiceMeeter VAIO)") })
+                expect (! AppController::isCableInputName (n) && ! AppController::isCableOutputName (n), n);
+        }
+
         beginTest ("F-01-6: a monitor device saved as the virtual cable (hand-edited settings.json) is not kept");
         {
             freshDataDir();

@@ -144,6 +144,9 @@ void AppController::startup()
             // F-01-2: first run only, pick the cable's play side if there is exactly one
             juce::StringArray cables;
             for (auto& o : outputs) if (isCableInputName (o)) cables.add (o);
+            if (cables.size() > 1) // VB-CABLE also adds "CABLE In 16 Ch": prefer the ordinary play side
+                for (int i = cables.size(); --i >= 0;)
+                    if (cables[i].containsIgnoreCase ("16 Ch") && cables.size() > 1) cables.remove (i);
             if (cables.size() == 1) settings.outputDevice = cables[0];
         }
         if (settings.monitorDevice.isNotEmpty() && ! outputs.contains (settings.monitorDevice)) settings.monitorDevice = {};
@@ -178,8 +181,16 @@ juce::StringArray AppController::getMonitorDevices() const
     return r;
 }
 
-bool AppController::isCableInputName (const juce::String& n) { return n.containsIgnoreCase ("CABLE Input"); }
-bool AppController::isCableOutputName (const juce::String& n) { return n.containsIgnoreCase ("CABLE Output"); }
+// Japanese Windows can name VB-CABLE's play side "スピーカー (VB-Audio Virtual Cable)" (seen 2026-10-04), so the
+// driver name counts too. The play side is only ever looked up among outputs and the record side among inputs.
+bool AppController::isCableInputName (const juce::String& n)
+{
+    return n.containsIgnoreCase ("CABLE In") || (n.containsIgnoreCase ("VB-Audio Virtual Cable") && ! n.containsIgnoreCase ("CABLE Output"));
+}
+bool AppController::isCableOutputName (const juce::String& n)
+{
+    return n.containsIgnoreCase ("CABLE Output") || (n.containsIgnoreCase ("VB-Audio Virtual Cable") && ! n.containsIgnoreCase ("CABLE In"));
+}
 
 bool AppController::isVirtualCableInstalled() const
 {
@@ -277,7 +288,7 @@ void AppController::openDevicesIfReady()
     if (loopConfig)
     {
         // F-01-5: never start a loop (the mic would hear its own output)
-        addNotice ({ "loop", NoticeLevel::danger, u8 ("ループ構成のため開始できません（入力が CABLE Output、出力が CABLE Input になっています）。入力をマイクにしてください。"), false });
+        addNotice ({ "loop", NoticeLevel::danger, u8 ("ループ構成のため開始できません（入力が CABLE Output、出力が仮想ケーブルの再生側になっています）。入力をマイクにしてください。"), false });
         return;
     }
     removeNotice ("loop");

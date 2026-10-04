@@ -86,6 +86,9 @@ def main() -> None:
     gh = gh_exe()
     build_dir = Path(os.environ["LOCALAPPDATA"]) / "KoeLoom" / "build" / BUILD_NAME
     built_exe = build_dir / "KoeLoom_artefacts" / "Release" / "KoeLoom.exe"
+    # JUCE regenerates the VERSIONINFO .rc only when the icon changes, not the version (v0.3.0 shipped with
+    # "0.2.0" in its file properties): delete it before the build and check it after.
+    rc_file = build_dir / "KoeLoom_artefacts" / "JuceLibraryCode" / "KoeLoom_resources.rc"
     stage = Path(os.environ["LOCALAPPDATA"]) / "KoeLoom" / "release" / tag
     asset = stage / f"KoeLoom-{tag}-win-x64.exe"
     sha_file = stage / f"{asset.name}.sha256"
@@ -118,6 +121,8 @@ def main() -> None:
     ]
 
     print(f"KoeLoom {tag}{' (pre-release)' if args.prerelease else ''} -> {GH_REPO}")
+    if not args.skip_build and not args.dry_run:
+        rc_file.unlink(missing_ok=True)
     for i, (label, cmd, cwd) in enumerate(steps, 1):
         print(f"[{i}/{len(steps)}] {label}")
         if cmd:
@@ -130,6 +135,8 @@ def main() -> None:
         elif label.startswith("copy"):
             if not built_exe.exists():
                 fail(f"no build at {built_exe}")
+            if f'"{version}\\0"' not in rc_file.read_text(encoding="utf-8", errors="replace"):
+                fail(f"{rc_file.name} does not carry version {version}; rebuild without --skip-build")
             stage.mkdir(parents=True, exist_ok=True)
             shutil.copy2(built_exe, asset)
             digest = hashlib.sha256(asset.read_bytes()).hexdigest()
