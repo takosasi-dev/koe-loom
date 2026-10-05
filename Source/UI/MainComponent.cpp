@@ -65,6 +65,7 @@ struct MainComponent::Impl : private juce::ChangeListener, private juce::Timer
 
     void buildPages()
     {
+        Theme::prefs().knobStyle = builtKnobStyle = c.getSettings().knobStyle; // before any Knob is made
         voice = makeVoicePage (c.getSettings().layoutStyle, c, owner);
         builtLayout = c.getSettings().layoutStyle;
         sound = std::make_unique<SoundboardView> (c, owner);
@@ -162,6 +163,7 @@ struct MainComponent::Impl : private juce::ChangeListener, private juce::Timer
         p.peakHoldMs = s.meterPeakHoldMs;
         p.knobSensitivity = s.knobSensitivity;
         p.knobWheel = s.knobWheel;
+        p.knobStyle = s.knobStyle; // read when the pages are built: a change rebuilds them (applyTheme)
         tooltips.setMillisecondsBeforeTipAppears (juce::roundToInt (s.tooltipDelayMs));
         if (timerHz != p.meterFps)
         {
@@ -190,7 +192,9 @@ struct MainComponent::Impl : private juce::ChangeListener, private juce::Timer
         const auto& s = c.getSettings();
         // 「配色」 (Settings::themeId, INTERFACES.md §8.4): "" = Studio (theme + accent + tone), else a built-in / user palette
         const bool studioSame = s.darkTheme == Theme::isDark() && s.accentColour == Theme::accent() && s.backgroundTone == Theme::tone();
-        if (s.themeId == Theme::themeId() && (s.themeId.isNotEmpty() || studioSame) && s.layoutStyle == builtLayout) return;
+        if (s.themeId == Theme::themeId() && (s.themeId.isNotEmpty() || studioSame) && s.layoutStyle == builtLayout
+            && s.knobStyle == builtKnobStyle)
+            return;
         Theme::clearPalette();
         Theme::setDark (s.darkTheme);
         Theme::setVariant (s.accentColour, s.backgroundTone);
@@ -250,6 +254,7 @@ struct MainComponent::Impl : private juce::ChangeListener, private juce::Timer
     NoticeBar notices;
     std::unique_ptr<VoicePage> voice;
     int builtLayout = 0;          // S-03 外観 「画面の配置」 the voice page was built with
+    int builtKnobStyle = 0;       // S-03 外観 「つまみの形」 the pages were built with (wave 10)
     std::unique_ptr<SoundboardView> sound;
     std::unique_ptr<SettingsView> settings;
     std::unique_ptr<ToolsView> tools;
@@ -294,6 +299,17 @@ void MainComponent::resized() { impl->layout(); }
 
 bool MainComponent::keyPressed (const juce::KeyPress& key)
 {
+    // wave10/edit: Ctrl+Z = 元に戻す, Ctrl+Y / Ctrl+Shift+Z = やり直し on the voice page (also over its panels); a focused text field keeps them
+    const bool undoKey = key == juce::KeyPress ('z', juce::ModifierKeys::commandModifier, 0);
+    const bool redoKey = key == juce::KeyPress ('y', juce::ModifierKeys::commandModifier, 0)
+                         || key == juce::KeyPress ('z', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier, 0);
+    if ((undoKey || redoKey) && impl->page == Page::voice
+        && dynamic_cast<juce::TextEditor*> (juce::Component::getCurrentlyFocusedComponent()) == nullptr)
+    {
+        juce::String why;
+        if (! (undoKey ? impl->c.undo (why) : impl->c.redo (why))) showToast (why);
+        return true;
+    }
     return impl->page == Page::settings && ! impl->overlay.isVisible() && impl->settings->keyPressed (key);
 }
 
@@ -515,7 +531,7 @@ int renderSnapshots (const juce::File& outputDir)
         // wave 8 (INTERFACES.md §10.2): the ツール page, one shot per tool (+ the narrow window for the first)
         for (int i = 0; i < ToolsView::numTools; ++i)
         {
-            static const char* ids[] = { "take", "record", "pitch", "morph", "calibrate", "miceq" };
+            static const char* ids[] = { "take", "record", "pitch", "morph", "calibrate", "miceq", "spectrum" };
             auto showTool = [i] (MainComponent& m)
             {
                 m.showPage (Navigator::Page::tools);
@@ -797,6 +813,39 @@ int renderSnapshots (const juce::File& outputDir)
                 shot ("S09-mod-min" + t, w, h, showMod);
                 c.loadPreset ("character-demon-king");
             }
+        // wave10/viz: 声の見える化 with a made-up voice (snapshots have no sound; S10-spectrum / S09 show the no-device state),
+        // the tool and the S-09 strip, and the tallest S-09 (ボコーダー: 2 rows of knobs) with the strip in the narrow window
+        {
+            VizData::Spectra demo;
+            SpectrumAnalyser::demoSpectra (demo.in, demo.out);
+            VizData::testSpectra = &demo;
+            auto showSpectrum = [] (MainComponent& m)
+            {
+                m.showPage (Navigator::Page::tools);
+                if (auto* v = dynamic_cast<ToolsView*> (findById (&m, "page.tools"))) v->showTool (ToolsView::Tool::spectrum);
+            };
+            shot ("S10-spectrum-live" + t, W, H, showSpectrum);
+            shot ("S10-spectrum-live-min" + t, w, h, showSpectrum);
+            shot ("S09-spectrum" + t, W, H, [] (MainComponent& m) { m.showSlotDetail (0); });
+            shot ("S09-spectrum-min" + t, w, h, [] (MainComponent& m) { m.showSlotDetail (0); });
+            juce::String why;
+            if (c.addEffect ("vocoder", why))
+            {
+                const int slot = int (c.getChain().size()) - 1;
+                shot ("S09-spectrum-tall-min" + t, w, h, [slot] (MainComponent& m) { m.showSlotDetail (slot); });
+            }
+            c.loadPreset ("character-demon-king");
+            VizData::testSpectra = nullptr;
+        }
+        // wave10/ui: S-03 つまみの形 = 棒 (the Studio slots, 声の変換 and S-09 as thin bars; each shot builds its pages with it)
+        {
+            c.updateSettings ([] (Settings& s) { s.knobStyle = 1; });
+            shot ("S01-bar" + t, W, H, {});
+            shot ("S01-bar-min" + t, w, h, {});
+            shot ("S09-bar" + t, W, H, [] (MainComponent& m) { m.showSlotDetail (0); });
+            shot ("S09-bar-min" + t, w, h, [] (MainComponent& m) { m.showSlotDetail (0); });
+            c.updateSettings ([] (Settings& s) { s.knobStyle = 0; });
+        }
         shot ("S04" + t, W, H, [] (MainComponent& m) { m.showSetupWizard(); });
         shot ("S04-step2" + t, W, H, [] (MainComponent& m)
         {
@@ -863,6 +912,58 @@ int renderSnapshots (const juce::File& outputDir)
         shot ("S09-convolution" + t, Theme::defaultWidth, Theme::defaultHeight, [irSlot] (MainComponent& m) { m.showSlotDetail (irSlot); });
         c.setSlotFileName (irSlot, juce::String::fromUTF8 ("消えた残響.wav"));
         shot ("S09-convolution-missing" + t, Theme::minWidth, Theme::minHeight, [irSlot] (MainComponent& m) { m.showSlotDetail (irSlot); });
+    }
+    c.loadPreset ("character-demon-king");
+
+    // wave10/fx: S-09 of the 4 effects of wave 10 (INTERFACES.md §12.3), wide and 800x560; tapestop also while stopped
+    for (const bool dark : { true, false })
+    {
+        Theme::setDark (dark);
+        lnf.refreshColours();
+        c.updateSettings ([dark] (Settings& s) { s.darkTheme = dark; });
+        const juce::String t = dark ? "-dark" : "-light";
+        for (const char* type : { "freqshift", "octaver", "resonator", "tapestop" })
+        {
+            c.loadPreset ("character-demon-king");
+            juce::String why;
+            c.addEffect (type, why);
+            const int fxSlot = int (c.getChain().size()) - 1;
+            const auto show = [fxSlot] (MainComponent& m) { m.showSlotDetail (fxSlot); };
+            shot ("S09-" + juce::String (type) + t, Theme::defaultWidth, Theme::defaultHeight, show);
+            shot ("S09-" + juce::String (type) + "-min" + t, Theme::minWidth, Theme::minHeight, show);
+        }
+        std::vector<float> in (480, 0.0f), out (480);
+        c.getProcessorForTests().process (in.data(), out.data(), nullptr, 480); // the chain with tapestop is in
+        c.triggerSlot (int (c.getChain().size()) - 1, EffectTrigger::tapeStopToggle);
+        c.getProcessorForTests().process (in.data(), out.data(), nullptr, 480); // the effect takes the trigger
+        shot ("S09-tapestop-stopped" + t, Theme::minWidth, Theme::minHeight, [&c] (MainComponent& m) { m.showSlotDetail (int (c.getChain().size()) - 1); });
+    }
+    c.loadPreset ("character-demon-king");
+
+    // wave10/edit: 元に戻す / やり直し / A/B. A/B ON (the engine plays the saved 魔王) in Studio and Paper, and after one edit
+    // (元に戻す and A/B pressable, やり直し not) in the three layouts, narrow; Mono's column by the mute in the wide window too
+    for (const bool dark : { true, false })
+    {
+        Theme::setDark (dark);
+        lnf.refreshColours();
+        c.updateSettings ([dark] (Settings& s) { s.darkTheme = dark; });
+        const juce::String t = dark ? "-dark" : "-light";
+        constexpr int W = Theme::defaultWidth, H = Theme::defaultHeight, w = Theme::minWidth, h = Theme::minHeight;
+        c.loadPreset ("character-demon-king");
+        c.setPitch (-7.0f); // 魔王: -9 -> -7 st
+        juce::String why;
+        c.setAbCompare (true, why);
+        shot ("S01-ab" + t, W, H, {});
+        shot ("S01-ab-min" + t, w, h, {});
+        c.updateSettings ([] (Settings& s) { s.layoutStyle = 1; });
+        shot ("S01-paper-ab" + t, W, H, {});
+        c.setAbCompare (false, why);
+        shot ("S01-paper-edit-min" + t, w, h, {});
+        c.updateSettings ([] (Settings& s) { s.layoutStyle = 2; });
+        shot ("S01-mono-edit-wide" + t, W, H, {});
+        shot ("S01-mono-edit-min" + t, w, h, {});
+        c.updateSettings ([] (Settings& s) { s.layoutStyle = 0; });
+        shot ("S01-edit-min" + t, w, h, {});
     }
     c.loadPreset ("character-demon-king");
 

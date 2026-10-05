@@ -241,7 +241,7 @@ public:
             b->setBounds (row.removeFromRight (b->preferredWidth()).withSizeKeepingCentre (b->preferredWidth(), lh));
             row.removeFromRight (compact ? Theme::space3 - 4 : Theme::space4);
         }
-        const int selW = compact ? 180 : 220;
+        const int selW = compact ? 140 : 220; // wave10/edit: 180 -> 140 narrow, the name keeps room beside 元に戻す / やり直し / A/B
         selector.setBounds (row.removeFromRight (selW).withSizeKeepingCentre (selW, lh));
         row.removeFromRight (Theme::space3);
         const int ew = extras.preferredWidth (lh);

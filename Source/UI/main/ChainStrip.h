@@ -13,6 +13,28 @@ class ChainStrip;
     for a new one. The chain strip slides cards from their old place with this (F-14-6). */
 std::vector<int> matchSlots (const juce::StringArray& before, const juce::StringArray& after);
 
+// ---------------------------------------------------------------------------------------------
+// wave10/ui (INTERFACES.md §12.3): the slot context menu of the three layouts (right click, the menu key, Shift+F10).
+// The entries and what each does are kept apart from the PopupMenu, so the tests check them without a menu.
+enum class SlotAction { toggle = 1, detail, duplicate, reset, moveBack, moveForward, remove };
+struct SlotMenuItem
+{
+    SlotAction action;
+    juce::String text;
+    bool enabled;
+};
+/** The entries for slot, in menu order (vertical = Mono's 上へ / 下へ). Greyed out: 複製 at kMaxSlots or for a type the
+    chain holds once, the moves at the ends, 初期値に戻す for an unknown effect. */
+std::vector<SlotMenuItem> slotMenuItems (const AppController& c, int slot, bool vertical);
+/** Runs one: ON/OFF (toast when refused), S-09, 複製 / 移動 / 削除 through withLooperCheck (toast when refused), 初期値に戻す. */
+void runSlotAction (AppController& c, Navigator& nav, juce::Component& owner, int slot, SlotAction action);
+/** Shows the menu at the mouse, or under owner (keyboard); the choice runs only while owner still exists. */
+void showSlotMenu (AppController& c, Navigator& nav, juce::Component& owner, int slot, bool vertical, bool atMouse);
+/** Shift+F10. */
+bool isSlotMenuKey (const juce::KeyPress& k);
+/** The keyboard's menu key is down (JUCE gives it to keyStateChanged only, never to keyPressed). */
+bool isSlotMenuKeyDown();
+
 class SlotCard : public juce::Component, public juce::SettableTooltipClient
 {
 public:
@@ -26,6 +48,7 @@ public:
     void mouseDrag (const juce::MouseEvent& e) override;
     void mouseUp (const juce::MouseEvent& e) override;
     bool keyPressed (const juce::KeyPress& k) override;
+    bool keyStateChanged (bool isKeyDown) override;
     void focusGained (FocusChangeType) override { repaint(); }
     void focusLost (FocusChangeType) override { repaint(); }
 
@@ -46,6 +69,7 @@ private:
     SlotDef last;
     int lastContext = -1;
     bool enabled = true, autoStopped = false, compact = false, dragging = false;
+    const bool bars; // S-03 つまみの形 = 棒 when built (wave10/ui): the knobs are full-width bars that draw their own name and value
     SquareIconButton left, right, remove;
 };
 

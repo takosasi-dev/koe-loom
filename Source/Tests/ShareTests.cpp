@@ -154,7 +154,7 @@ private:
             total += code.length();
             if (code.length() > longest) { longest = code.length(); longestId = orig.id; }
         }
-        expectEquals (count, 81);
+        expectEquals (count, 85);
         expectLessThan (longest, 2000, "fits a 2000-character Discord message");
         logMessage ("share code length over " + juce::String (count) + " built-ins: average " + juce::String (double (total) / juce::jmax (1, count), 0)
                     + ", longest " + juce::String (longest) + " (" + longestId + ")");

@@ -149,7 +149,7 @@ private:
         PresetLibrary lib (dir);
         expect (lib.reload().isEmpty());
         const int builtinCount = int (lib.all().size());
-        if (lib.builtinErrors() != 0 || builtinCount != 81) return expect (false, "built-ins missing; CRUD test skipped");
+        if (lib.builtinErrors() != 0 || builtinCount != 85) return expect (false, "built-ins missing; CRUD test skipped");
 
         Preset p = *lib.find ("character-demon-king");
         p.pitchSt = -8.5f;
@@ -347,16 +347,16 @@ private:
 
     void testBuiltins()
     {
-        // 61 from koeloom_presets.md sec. 4 + 11 device and 9 space presets of wave 7 (INTERFACES.md §9.5)
-        beginTest ("AC-44: all 81 built-ins load with no errors, in koeloom_presets.md sec. 4 order");
+        // 61 from koeloom_presets.md sec. 4 + 11 device and 9 space presets of wave 7 (INTERFACES.md §9.5) + 2 character and 2 device of wave 10 (§12.3)
+        beginTest ("AC-44: all 85 built-ins load with no errors, in koeloom_presets.md sec. 4 order");
         PresetLibrary lib (tmp.getChildFile ("empty-user-dir"));
         expect (lib.reload().isEmpty());
         expectEquals (lib.builtinErrors(), 0);
         const auto& all = lib.all();
-        expectEquals (int (all.size()), 81);
-        if (all.size() != 81 || lib.builtinErrors() != 0) return;
-        expect (all.front().id == "natural-asis" && all[11].id == "character-female" && all[33].id == "device-telephone"
-                && all[56].id == "space-cave" && all[73].id == "layered-harmony-fifth" && all.back().id == "layered-harmony-scale");
+        expectEquals (int (all.size()), 85);
+        if (all.size() != 85 || lib.builtinErrors() != 0) return;
+        expect (all.front().id == "natural-asis" && all[11].id == "character-female" && all[35].id == "device-telephone"
+                && all[60].id == "space-cave" && all[77].id == "layered-harmony-fifth" && all.back().id == "layered-harmony-scale");
 
         std::map<juce::String, int> perCategory;
         std::map<int, int> perPhase;
@@ -409,14 +409,14 @@ private:
             }
         }
         expectEquals (perCategory["natural"], 11);
-        expectEquals (perCategory["character"], 22);
-        expectEquals (perCategory["device"], 23);
+        expectEquals (perCategory["character"], 24);
+        expectEquals (perCategory["device"], 25);
         expectEquals (perCategory["space"], 17);
         expectEquals (perCategory["layered"], 8);
         expectEquals (perPhase[1], 2);
         expectEquals (perPhase[2], 74);
         expectEquals (perPhase[1] + perPhase[2], 76);
-        expectEquals (perPhase[5], 5);
+        expectEquals (perPhase[5], 9);
 
         beginTest ("AC-44: the Phase 2 effect types match koeloom_effects.md sec. 2, and Phase 1+2 presets use only those");
         const std::set<std::string> expected { "compressor", "deesser", "enhancer", "eq", "peq", "autowah", "filtersweep", "isolator",

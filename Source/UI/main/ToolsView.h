@@ -15,8 +15,8 @@ namespace koe::ui
 class ToolsView : public juce::Component
 {
 public:
-    enum class Tool { take, record, pitch, morph, calibrate, micEq };
-    static constexpr int numTools = 6;
+    enum class Tool { take, record, pitch, morph, calibrate, micEq, spectrum };
+    static constexpr int numTools = 7;
 
     ToolsView (AppController& c, Navigator& nav);
     ~ToolsView() override;
@@ -38,4 +38,5 @@ std::unique_ptr<juce::Component> makePitchTool (AppController&, Navigator&);    
 std::unique_ptr<juce::Component> makeMorphTool (AppController&, Navigator&);     // 混ぜる     UI/tools/MorphTool.cpp      wave8/morph
 std::unique_ptr<juce::Component> makeCalibrateTool (AppController&, Navigator&); // 音量合わせ UI/tools/CalibrateTool.cpp  wave8/analysis
 std::unique_ptr<juce::Component> makeMicEqTool (AppController&, Navigator&);     // マイク補正 UI/tools/MicEqTool.cpp      wave9/voice
+std::unique_ptr<juce::Component> makeSpectrumTool (AppController&, Navigator&);  // 見える化   UI/tools/SpectrumTool.cpp   wave10/viz
 } // namespace koe::ui

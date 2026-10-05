@@ -50,6 +50,18 @@ static int chainIndexFor (const std::vector<SlotDef>& chain, int modelIndex)
     return idx;
 }
 
+// Model slot index -> the engine's chain slot, through what the engine plays (INTERFACES.md §12). During A/B that is the
+// saved copy, laid out differently: only the once-per-chain types (their buttons and hotkeys) map across, by type; any
+// other write waits for the rebuild that ends A/B (noteEdit). -1 = none.
+static int engineSlotFor (const std::vector<SlotDef>& model, const std::vector<SlotDef>& played, int modelIndex)
+{
+    if (&model == &played) return chainIndexFor (model, modelIndex);
+    if (modelIndex < 0 || modelIndex >= int (model.size()) || ! isOnePerChain (model[size_t (modelIndex)].type)) return -1;
+    for (int k = 0; k < int (played.size()); ++k)
+        if (played[size_t (k)].type == model[size_t (modelIndex)].type) return chainIndexFor (played, k);
+    return -1;
+}
+
 AppController::AppController (bool openDevices) : allowDevices (openDevices)
 {
     library = std::make_unique<PresetLibrary> (paths::presetsDir());
@@ -92,6 +104,7 @@ AppController::~AppController()
     shutdownAutomation();
     shutdownMicEq();     // wave 9 (INTERFACES.md §11)
     shutdownStream();
+    shutdownViz();       // wave 10 (INTERFACES.md §12)
     processor.setAuxSource (nullptr);
     processor.setMonitorSink (nullptr);
     if (engine != nullptr) engine->close();
@@ -175,6 +188,7 @@ void AppController::shutdown()
     shutdownAutomation();
     shutdownMicEq();     // wave 9 (INTERFACES.md §11)
     shutdownStream();
+    shutdownViz();       // wave 10 (INTERFACES.md §12)
     closeDevices();
     if (hotkeys != nullptr) hotkeys->unregisterAll();
     finishUpdateOnQuit(); // §7.4: a ready update replaces the exe when the app quits
@@ -518,7 +532,7 @@ bool AppController::addEffect (const std::string& type, juce::String& whyNot)
         whyNot = u8 ("スロットは 10 個までです。"); // F-04-1
         return false;
     }
-    if (type == "freeze" || type == "looper")
+    if (isOnePerChain (type))
         for (auto& s : current.chain)
             if (s.type == type)
             {
@@ -546,6 +560,43 @@ void AppController::removeSlot (int i)
     markModified();
 }
 
+bool AppController::duplicateSlot (int i, juce::String& whyNot)
+{
+    if (i < 0 || i >= int (current.chain.size())) return false;
+    if (int (current.chain.size()) >= kMaxSlots)
+    {
+        whyNot = u8 ("スロットは 10 個までです。"); // F-04-1
+        return false;
+    }
+    auto copy = current.chain[size_t (i)];
+    if (isOnePerChain (copy.type))
+    {
+        whyNot = effectName (copy.type) + u8 (" はチェーンに 1 つまでです。"); // F-04-3
+        return false;
+    }
+    auto* info = findEffectInfo (copy.type);
+    if (copy.enabled && info != nullptr && info->weight == EffectWeight::heavy && heavyOnCount (current.chain) >= kMaxHeavyOn)
+    {
+        copy.enabled = false; // F-04-17, like addEffect
+        toast (u8 ("重いエフェクトは同時に 2 つまでしか ON にできないため、OFF の状態で複製しました。"));
+    }
+    current.chain.insert (current.chain.begin() + i + 1, copy);
+    rebuildChain();
+    markModified();
+    return true;
+}
+
+void AppController::resetSlot (int i)
+{
+    if (i < 0 || i >= int (current.chain.size())) return;
+    auto& s = current.chain[size_t (i)];
+    auto* info = findEffectInfo (s.type);
+    if (info == nullptr) return;
+    for (int p = 0; p < int (info->params.size()); ++p)
+        setSlotParam (i, p, info->params[size_t (p)].def); // live, like a knob double-click
+    setSlotMod (i, {}, 0.0f);
+}
+
 bool AppController::moveSlot (int from, int to)
 {
     const int n = int (current.chain.size());
@@ -570,7 +621,7 @@ bool AppController::setSlotEnabled (int i, bool on, juce::String& whyNot)
     }
     s.enabled = on;
     if (auto* chain = processor.getRequestedChain(); chain != nullptr)
-        if (const int ci = chainIndexFor (current.chain, i); ci >= 0 && ci < chain->size())
+        if (const int ci = engineSlotFor (current.chain, playedPreset().chain, i); ci >= 0 && ci < chain->size())
         {
             if (on) chain->slot (ci).autoStopped.store (false); // manual re-enable clears 自動停止
             chain->slot (ci).enabled.store (on);
@@ -589,7 +640,7 @@ void AppController::setSlotParam (int i, int p, float v)
     if (int (s.params.size()) <= p) s.params.resize (info->params.size());
     s.params[size_t (p)] = v;
     if (auto* chain = processor.getRequestedChain(); chain != nullptr)
-        if (const int ci = chainIndexFor (current.chain, i); ci >= 0 && ci < chain->size())
+        if (const int ci = engineSlotFor (current.chain, playedPreset().chain, i); ci >= 0 && ci < chain->size())
             chain->slot (ci).params[size_t (p)].store (v);
     markModified();
 }
@@ -606,7 +657,7 @@ bool AppController::setSlotMod (int i, const std::string& target, float depth)
     s.modTarget = target;
     s.modDepth = target.empty() ? 0.0f : depth;
     if (auto* chain = processor.getRequestedChain(); chain != nullptr)
-        if (const int ci = chainIndexFor (current.chain, i); ci >= 0 && ci < chain->size())
+        if (const int ci = engineSlotFor (current.chain, playedPreset().chain, i); ci >= 0 && ci < chain->size())
         {
             chain->slot (ci).modDepth.store (s.modDepth);
             chain->slot (ci).modIndex.store (mi);
@@ -624,21 +675,21 @@ float AppController::getModLevel() const
 bool AppController::isSlotAutoStopped (int i) const
 {
     auto* chain = processor.getRequestedChain();
-    const int ci = chainIndexFor (current.chain, i);
+    const int ci = engineSlotFor (current.chain, playedPreset().chain, i);
     return chain != nullptr && ci >= 0 && ci < chain->size() && chain->slot (ci).autoStopped.load();
 }
 
 void AppController::triggerSlot (int i, EffectTrigger action)
 {
     auto* chain = processor.getRequestedChain();
-    const int ci = chainIndexFor (current.chain, i);
+    const int ci = engineSlotFor (current.chain, playedPreset().chain, i);
     if (chain != nullptr && ci >= 0 && ci < chain->size()) chain->slot (ci).pendingTrigger.store (int (action));
 }
 
 int AppController::getSlotUiState (int i) const
 {
     auto* chain = processor.getRequestedChain();
-    const int ci = chainIndexFor (current.chain, i);
+    const int ci = engineSlotFor (current.chain, playedPreset().chain, i);
     return chain != nullptr && ci >= 0 && ci < chain->size() ? chain->slot (ci).fx->getUiState() : 0;
 }
 
@@ -652,7 +703,7 @@ bool AppController::hasLooperRecording() const
 void AppController::rebuildChain()
 {
     std::vector<SlotDef> buildable;
-    for (auto& s : current.chain)
+    for (auto& s : playedPreset().chain) // wave 10: the saved copy during A/B
         if (hasEffectFactory (s.type)) buildable.push_back (s);
     ++chainBuilds;
     processor.requestChain (EffectChain::create (buildable, processor.getSampleRate(), processor.getMaxBlockSize()));
@@ -660,13 +711,14 @@ void AppController::rebuildChain()
 
 void AppController::applyPresetToEngine (bool rebuild)
 {
-    processor.setShifter (current.hasShifter, current.pitchSt, current.formantSt);
+    const auto& p = playedPreset(); // wave 10 (INTERFACES.md §12): current, or the saved copy during A/B
+    processor.setShifter (p.hasShifter, p.pitchSt, p.formantSt);
     for (int i = 0; i < kMaxLayers; ++i)
     {
         VoiceProcessor::LayerParams lp;
-        if (i < int (current.layers.size()))
+        if (i < int (p.layers.size()))
         {
-            const auto& l = current.layers[size_t (i)];
+            const auto& l = p.layers[size_t (i)];
             lp.active = l.enabled;
             lp.scale = l.mode == LayerDef::Mode::scale;
             lp.pitchSt = l.pitchSt;
@@ -678,18 +730,20 @@ void AppController::applyPresetToEngine (bool rebuild)
         }
         processor.setLayer (i, lp);
     }
-    processor.setTrimDb (getEffectiveTrimDb());
+    processor.setTrimDb (trimFor (p));
     if (rebuild) rebuildChain();
 }
 
-float AppController::getEffectiveTrimDb() const
+float AppController::getEffectiveTrimDb() const { return trimFor (current); }
+
+float AppController::trimFor (const Preset& p) const
 {
     // 自分の声で音量合わせ (INTERFACES.md §10): a measured trim replaces a built-in preset's shipped one. A blend
     // (プリセットを混ぜる) clears current.builtin and carries its own outputTrimDb.
-    if (current.builtin)
+    if (p.builtin)
         if (auto it = settings.calibratedTrimDb.find (juce::String (currentBaseId)); it != settings.calibratedTrimDb.end())
             return it->second;
-    return current.outputTrimDb;
+    return p.outputTrimDb;
 }
 
 // ============================================================================ presets
@@ -707,6 +761,7 @@ void AppController::loadPreset (const std::string& id, bool fromHotkey)
     currentBaseId = id;
     modified = false;
     settings.currentPresetId = juce::String (id);
+    editReset(); // wave 10 (INTERFACES.md §12): a new history, A/B off (before the engine gets the preset)
     applyPresetToEngine (true); // F-05-5: pitch glides, layers fade, chain crossfades (E-20: last one wins)
     saveSettingsSoon();
     sendChangeMessage();
@@ -714,6 +769,7 @@ void AppController::loadPreset (const std::string& id, bool fromHotkey)
 
 bool AppController::saveCurrentAsNew (const juce::String& name, juce::String& error)
 {
+    editBeforeSave(); // wave 10 (INTERFACES.md §12): A/B off, the engine plays what is saved
     std::string newId;
     if (! library->saveNew (current, name, newId, error)) return false;
     if (auto* p = library->find (newId))
@@ -731,6 +787,7 @@ bool AppController::saveCurrentAsNew (const juce::String& name, juce::String& er
 
 bool AppController::overwriteCurrent (juce::String& error)
 {
+    editBeforeSave(); // wave 10 (INTERFACES.md §12)
     auto* base = library->find (currentBaseId);
     if (base == nullptr)
     {
@@ -1069,10 +1126,13 @@ void AppController::performAction (const juce::String& a)
     else if (a.startsWith ("sound.")) soundboard->trigger (a.fromFirstOccurrenceOf (".", false, false).getIntValue() - 1);
     else if (a.startsWith ("soundStop.")) soundboard->stopSlot (a.fromFirstOccurrenceOf (".", false, false).getIntValue() - 1);
     else if (a == "soundStopAll") soundboard->stopAll();
-    else if (a == "freezeToggle" || a == "looperRecPlay" || a == "looperClear")
+    else if (a == "freezeToggle" || a == "looperRecPlay" || a == "looperClear" || a == "tapeStopToggle")
     {
-        const std::string type = a == "freezeToggle" ? "freeze" : "looper";
-        const auto action = a == "freezeToggle" ? EffectTrigger::freezeToggle : (a == "looperRecPlay" ? EffectTrigger::looperRecordPlay : EffectTrigger::looperClear);
+        const std::string type = a == "freezeToggle" ? "freeze" : (a == "tapeStopToggle" ? "tapestop" : "looper");
+        const auto action = a == "freezeToggle"     ? EffectTrigger::freezeToggle
+                          : a == "tapeStopToggle"   ? EffectTrigger::tapeStopToggle // wave 10 (INTERFACES.md §12)
+                          : a == "looperRecPlay"    ? EffectTrigger::looperRecordPlay
+                                                    : EffectTrigger::looperClear;
         for (int i = 0; i < int (current.chain.size()); ++i)
             if (current.chain[size_t (i)].type == type) triggerSlot (i, action);
     }
@@ -1167,6 +1227,7 @@ void AppController::refreshOutputNotice()
 void AppController::markModified()
 {
     modified = true;
+    noteEdit(); // wave 10 (INTERFACES.md §12): undo history, ends A/B
     sendChangeMessage();
 }
 
@@ -1187,7 +1248,7 @@ void AppController::timerCallback()
         {
             int mi = -1;
             for (int i = 0; i < int (current.chain.size()); ++i)
-                if (chainIndexFor (current.chain, i) == ci) mi = i;
+                if (engineSlotFor (current.chain, playedPreset().chain, i) == ci) mi = i;
             if (mi < 0) continue;
             auto* info = findEffectInfo (current.chain[size_t (mi)].type);
             const bool heavy = info != nullptr && info->weight == EffectWeight::heavy;
@@ -1247,6 +1308,7 @@ void AppController::timerCallback()
     tickCapture();       // wave 8 (INTERFACES.md §10)
     tickMicEq();         // wave 9 (INTERFACES.md §11)
     tickStream();
+    tickViz();           // wave 10 (INTERFACES.md §12)
     tickAnalysis();
     tickAutomation();
 

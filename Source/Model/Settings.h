@@ -152,6 +152,9 @@ struct Settings
     int overlayCorner = 0;                 // 0 = top right, 1 = bottom right, 2 = bottom left, 3 = top left
     float overlaySeconds = kOverlaySeconds.def;
 
+    // ---- wave 10 (INTERFACES.md §12, owner request 2026-10-05). Every default keeps the old behaviour. ----
+    int knobStyle = 0;                     // つまみの形 (A Studio): 0 = arc knob, 1 = thin bar
+
     bool operator== (const Settings&) const = default;
 };
 

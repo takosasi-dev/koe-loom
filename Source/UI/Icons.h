@@ -8,7 +8,8 @@ namespace koe::ui
 enum class Icon
 {
     logo, mic, power, help, chevronDown, chevronLeft, chevronRight, star, starFilled, check, plus, close,
-    headphones, stop, play, playFilled, speaker, folder, warning, search
+    headphones, stop, play, playFilled, speaker, folder, warning, search,
+    undo, redo // wave10/edit: 元に戻す / やり直し
 };
 
 /** Draws the icon fitted into area (keeps aspect). The logo uses `colour` for the first thread and

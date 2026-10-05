@@ -22,12 +22,14 @@ const char* const kBuiltinOrder[] = {
     "character-masked-villain", "character-robot", "character-cyborg", "character-alien", "character-ghost",
     "character-fairy", "character-crowd", "character-whisper", "character-kero", "character-vocoder-robot",
     "character-talkbox",
+    "character-metal-android", "character-kaiju", // wave10/fx (INTERFACES.md §12.3): freqshift, octaver
     "device-telephone", "device-am-radio", "device-megaphone", "device-military-radio", "device-8bit",
     "device-broken-speaker", "device-old-tape", "device-radio-noise", "device-wah-voice", "device-vowel-filter",
     "device-slicer-trance", "device-stutter-glitch",
     // wave 7 (tone): kept inside the device block, which ModelTests requires to be contiguous
     "device-helmet", "device-underwater", "device-next-room", "device-vinyl", "device-gasmask", "device-stadium",
     "device-octave-fuzz", "device-hardclip", "device-wavefolder", "device-transistor", "device-worn-tape",
+    "device-metal-pipe", "device-tape-stop", // wave10/fx (INTERFACES.md §12.3): resonator, tapestop
     "space-cave", "space-bath", "space-cathedral", "space-yamabiko", "space-underwater", "space-behind-wall",
     "space-tape-echo", "space-reverse-echo",
     // wave 7 (INTERFACES.md §9.5): the new reverb / echo types, at the end of the space block (blocks stay contiguous)

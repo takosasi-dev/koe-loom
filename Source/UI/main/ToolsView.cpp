@@ -17,6 +17,7 @@ constexpr std::array<ToolInfo, ToolsView::numTools> kTools { {
     { "morph", "混ぜる", "2 つのプリセットの間を行き来する" },
     { "calibrate", "音量合わせ", "自分の声でプリセットの音量をそろえる" },
     { "miceq", "マイク補正", "マイクのこもりや刺さる高音を、自分の声で測って整える" },
+    { "spectrum", "見える化", "加工の前と後の声の周波数を重ねて見る" },
 } };
 } // namespace
 
@@ -33,7 +34,8 @@ struct ToolsView::Impl
                 case 2: return makePitchTool (c, nav);
                 case 3: return makeMorphTool (c, nav);
                 case 4: return makeCalibrateTool (c, nav);
-                default: return makeMicEqTool (c, nav);
+                case 5: return makeMicEqTool (c, nav);
+                default: return makeSpectrumTool (c, nav);
             }
         };
         for (int i = 0; i < numTools; ++i)

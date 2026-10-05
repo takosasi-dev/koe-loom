@@ -1,6 +1,7 @@
 #include "UI/skins/paper/PaperChain.h"
 
 #include "Effects/EffectRegistry.h"
+#include "UI/main/ChainStrip.h" // the slot menu (wave10/ui)
 
 #include <cmath>
 
@@ -201,10 +202,15 @@ void PaperSlotCard::paint (juce::Graphics& g)
     }
 }
 
-void PaperSlotCard::mouseDown (const juce::MouseEvent&) { dragging = false; }
+void PaperSlotCard::mouseDown (const juce::MouseEvent& e)
+{
+    dragging = false;
+    if (e.mods.isPopupMenu()) showSlotMenu (c, nav, *this, index, false, true); // wave10/ui: the slot menu
+}
 
 void PaperSlotCard::mouseDrag (const juce::MouseEvent& e)
 {
+    if (e.mods.isPopupMenu()) return;
     if (! dragging && e.getDistanceFromDragStart() > Theme::space1) dragging = true;
     if (dragging) chain.dragMove (*this, e);
 }
@@ -226,7 +232,15 @@ bool PaperSlotCard::keyPressed (const juce::KeyPress& k)
     if (k == juce::KeyPress::deleteKey) { remove.triggerClick(); return true; }
     if (k.getModifiers().isCtrlDown() && k.isKeyCode (juce::KeyPress::leftKey) && left.isEnabled()) { left.triggerClick(); return true; }
     if (k.getModifiers().isCtrlDown() && k.isKeyCode (juce::KeyPress::rightKey) && right.isEnabled()) { right.triggerClick(); return true; }
+    if (isSlotMenuKey (k)) { showSlotMenu (c, nav, *this, index, false, false); return true; }
     return false;
+}
+
+bool PaperSlotCard::keyStateChanged (bool isKeyDown)
+{
+    if (! isKeyDown || ! isSlotMenuKeyDown()) return false;
+    showSlotMenu (c, nav, *this, index, false, false);
+    return true;
 }
 
 // =============================================================================================== PaperChain

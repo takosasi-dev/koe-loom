@@ -96,6 +96,7 @@ struct Theme
         float peakHoldMs = 1500.0f;  // LevelMeter peak hold
         int knobSensitivity = 1;     // 0 ゆっくり / 1 標準 / 2 速い
         bool knobWheel = true;
+        int knobStyle = 0;           // wave 10 (INTERFACES.md §12): 0 arc knob / 1 thin bar (Knob draws itself; pages are rebuilt)
     };
     static Prefs& prefs();
 

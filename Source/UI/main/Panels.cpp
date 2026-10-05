@@ -1,6 +1,7 @@
 #include "UI/main/Panels.h"
 
 #include "Core/Paths.h"
+#include "UI/SpectrumView.h"
 #include "Effects/EffectRegistry.h"
 
 namespace koe::ui::mainui
@@ -14,6 +15,10 @@ constexpr int kRowH = Theme::space5 * 2;                   // 64
 constexpr int kFooterH = Theme::space5 + Theme::space3;    // 48
 constexpr int kCellW = Theme::space5 * 4;                  // 128
 constexpr int kCellH = Theme::space5 * 2 + Theme::space4;  // 88
+// wave10/ui: thin bars (name and value over the bar) are lower and want more width: 4 columns, as tall as a choice cell
+constexpr int kBarCellW = Theme::space5 * 5;               // 160
+constexpr int kBarCellH = Theme::space5 + Theme::space4;   // 56: a choice's label + gap + box (18 + 4 + 32)
+constexpr int kPanelW = Theme::space5 * 22 + Theme::space3; // 720
 constexpr int kNumCategories = 8;
 constexpr int kFileStatusH = Theme::space3 + 4;           // the line under the convolution file row
 } // namespace
@@ -432,6 +437,11 @@ SlotDetailPanel::SlotDetailPanel (AppController& ctl, Navigator& n, int s)
         action1 = std::make_unique<PillButton> (ja ("フリーズ"), PillButton::Style::primary);
         action1->onClick = [this] { c.triggerSlot (slot, EffectTrigger::freezeToggle); };
     }
+    else if (type == "tapestop") // wave 10 (INTERFACES.md §12)
+    {
+        action1 = std::make_unique<PillButton> (ja ("テープを止める"), PillButton::Style::primary);
+        action1->onClick = [this] { c.triggerSlot (slot, EffectTrigger::tapeStopToggle); };
+    }
     else if (type == "looper")
     {
         action1 = std::make_unique<PillButton> (ja ("録音"), PillButton::Style::primary);
@@ -446,6 +456,8 @@ SlotDetailPanel::SlotDetailPanel (AppController& ctl, Navigator& n, int s)
         modRow = std::make_unique<ModRow> (c, slot, info);
         addAndMakeVisible (*modRow);
     }
+    if (info != nullptr) // wave10/viz: 声の見える化 (nullptr until it exists)
+        if ((spectrum = makeSpectrumStrip (c)) != nullptr) addAndMakeVisible (*spectrum);
     if (action1 != nullptr || modRow != nullptr) startTimerHz (10);
 
     if (type == "convolution") // INTERFACES.md §9.3
@@ -482,11 +494,13 @@ SlotDetailPanel::SlotDetailPanel (AppController& ctl, Navigator& n, int s)
     updateValues();
     updateActions();
     c.addChangeListener (this);
-    const int rowsN = (int (cells.size()) + 4) / 5;
-    setSize (Theme::space5 * 22 + Theme::space3, headerHeight + Theme::space5 + Theme::space3 + juce::jmax (1, rowsN) * kCellH
+    const int cols = juce::jmax (1, (kPanelW - Theme::space4 * 2) / (bars ? kBarCellW : kCellW)); // as columns() lays them out
+    const int rowsN = (int (cells.size()) + cols - 1) / cols;
+    setSize (kPanelW, headerHeight + Theme::space5 + Theme::space3 + juce::jmax (1, rowsN) * (bars ? kBarCellH : kCellH)
                                                      + (action1 != nullptr ? Theme::space3 + Theme::buttonH : 0)
                                                      + (irList != nullptr ? Theme::buttonH + kFileStatusH + Theme::space2 : 0)
-                                                     + (modRow != nullptr ? kModRowH + Theme::space3 : 0) + Theme::space4);
+                                                     + (modRow != nullptr ? kModRowH + Theme::space3 : 0)
+                                                     + (spectrum != nullptr ? kSpectrumStripH + Theme::space3 : 0) + Theme::space4);
 }
 
 SlotDetailPanel::~SlotDetailPanel() { c.removeChangeListener (this); }
@@ -555,7 +569,7 @@ void SlotDetailPanel::pickIrFile()
                           });
 }
 
-int SlotDetailPanel::columns() const { return juce::jmax (1, (getWidth() - Theme::space4 * 2) / kCellW); }
+int SlotDetailPanel::columns() const { return juce::jmax (1, (getWidth() - Theme::space4 * 2) / (bars ? kBarCellW : kCellW)); }
 
 void SlotDetailPanel::updateValues()
 {
@@ -582,6 +596,7 @@ void SlotDetailPanel::updateActions()
     if (state == uiState) return;
     uiState = state;
     if (type == "freeze") action1->setButtonText (state != 0 ? ja ("フリーズを止める") : ja ("フリーズする"));
+    else if (type == "tapestop") action1->setButtonText (state != 0 ? ja ("テープを戻す") : ja ("テープを止める"));
     else
     {
         const char* labels[] = { "録音", "再生", "重ね録り", "再生" }; // effects §5.2: empty -> rec -> play -> overdub
@@ -644,14 +659,25 @@ void SlotDetailPanel::resized()
         modRow->setBounds (r.removeFromBottom (kModRowH));
         r.removeFromBottom (Theme::space3);
     }
+    if (spectrum != nullptr)
+    {
+        spectrum->setBounds (r.removeFromBottom (kSpectrumStripH));
+        r.removeFromBottom (Theme::space3);
+    }
     const int cols = columns();
-    const int cellW = r.getWidth() / cols;
+    const int cellW = r.getWidth() / cols, cellH = bars ? kBarCellH : kCellH;
     for (size_t i = 0; i < cells.size(); ++i)
     {
         auto& cell = cells[i];
-        const auto box = juce::Rectangle<int> (r.getX() + int (i % size_t (cols)) * cellW, r.getY() + int (i / size_t (cols)) * kCellH, cellW, kCellH)
+        const auto box = juce::Rectangle<int> (r.getX() + int (i % size_t (cols)) * cellW, r.getY() + int (i / size_t (cols)) * cellH, cellW, cellH)
                              .reduced (Theme::space1, 0);
-        if (cell.knob != nullptr)
+        if (cell.knob != nullptr && bars)
+        {
+            // the bar draws its name and value: its text row beside a choice's label, the bar beside the box
+            cell.knob->setBounds (box.withTrimmedTop (2).withHeight (cellH - Theme::space1));
+            cell.labelArea = cell.valueArea = {};
+        }
+        else if (cell.knob != nullptr)
         {
             cell.knob->setBounds (box.withSizeKeepingCentre (Theme::knobSmall, Theme::knobSmall).withY (box.getY()));
             cell.labelArea = box.withTop (box.getY() + Theme::knobSmall + 2).withHeight (Theme::space3 + 2);
@@ -684,6 +710,7 @@ void SlotDetailPanel::paint (juce::Graphics& g)
                   juce::Justification::centredRight, true);
     for (auto& cell : cells)
     {
+        if (cell.knob != nullptr && bars) continue; // the bar draws its own
         const auto& spec = info->params[size_t (cell.param)];
         g.setColour (p.textSub);
         g.setFont (Theme::ui (Theme::fontXS));
@@ -695,6 +722,7 @@ void SlotDetailPanel::paint (juce::Graphics& g)
     {
         juce::String state;
         if (type == "freeze") state = uiState != 0 ? ja ("状態: フリーズ中") : ja ("状態: OFF");
+        else if (type == "tapestop") state = uiState != 0 ? ja ("状態: 止めている") : ja ("状態: 再生中");
         else
         {
             const char* names[] = { "状態: 空", "状態: 録音中", "状態: 再生中", "状態: 重ね録り中" };

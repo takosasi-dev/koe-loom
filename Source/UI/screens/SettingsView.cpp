@@ -1580,6 +1580,9 @@ struct SettingsView::Impl final : juce::ChangeListener, juce::Timer
         std::vector<int> scales (std::begin (kUiScalePercents), std::end (kUiScalePercents));
         addChoice (card, "uiScalePercent", "拡大率", "画面全体の大きさです。ウィンドウの最小の大きさも同じ倍率になります",
                    "拡大 縮小 大きさ 文字の大きさ スケール ズーム", &Settings::uiScalePercent, { "90 %", "100 %", "110 %", "125 %", "150 %" }, scales);
+        // wave10/ui (INTERFACES.md §12.3): the pages are rebuilt with the other shape (MainComponent::applyTheme)
+        addChoice (card, "knobStyle", "つまみの形", "エフェクトや声の高さのつまみの形です。B・C の配置はスロットが元から棒で、詳しいつまみだけが変わります",
+                   "つまみ ノブ 棒 スライダー バー 形 円 丸 細い", &Settings::knobStyle, { "円（つまみ）", "棒" });
         beginDetails (card, "appearance");
         addToggle (card, "alwaysOnTop", "常に手前に表示", "ほかのウィンドウより前に表示します", "最前面 手前 前面 top", &Settings::alwaysOnTop);
         addChoice (card, "animations", "画面の動き", "切り替えのときの動きです。既定は Windows の「アニメーション効果」に従います", "アニメーション 動き",

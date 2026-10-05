@@ -263,7 +263,7 @@ private:
         const int ew = extras.preferredWidth (Theme::touchMin);
         extras.setBounds (row1.removeFromRight (ew).withSizeKeepingCentre (ew, Theme::touchMin));
         row1.removeFromRight (Theme::space2);
-        logoArea = row1.removeFromLeft (Theme::space4 + Theme::space2 + 2 + textWidth (Theme::ui (Theme::fontM, true), "KoeLoom"));
+        logoArea = row1.removeFromLeft (Theme::space4); // wave10/edit: the mark alone (no "KoeLoom"), the picker keeps room beside 元に戻す / やり直し / A/B
         row1.removeFromLeft (Theme::space3);
         const int pw = juce::jmin (row1.getWidth(), Theme::space5 * 8);
         picker.setBounds (row1.removeFromLeft (pw).withSizeKeepingCentre (pw, Theme::buttonH));

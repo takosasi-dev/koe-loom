@@ -74,6 +74,7 @@ private:
     const std::string type;
     const EffectInfo* info = nullptr;
     std::vector<Cell> cells;
+    const bool bars = Theme::prefs().knobStyle == 1; // S-03 つまみの形 = 棒 (wave10/ui): lower, wider cells
     ToggleSwitch toggle;
     std::unique_ptr<PillButton> action1, action2;
     int uiState = -1;
@@ -88,5 +89,6 @@ private:
     juce::Rectangle<int> fileStatus;
     class ModRow; // 声の大きさで動かす (wave9/voice, INTERFACES.md §11.3)
     std::unique_ptr<ModRow> modRow;
+    std::unique_ptr<juce::Component> spectrum; // 声の見える化 (wave10/viz, INTERFACES.md §12), above modRow
 };
 } // namespace koe::ui::mainui

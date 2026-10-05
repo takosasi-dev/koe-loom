@@ -167,6 +167,7 @@ juce::StringArray Hotkeys::allActions()
     for (int i = 1; i <= kSoundboardSlots; ++i) a.add ("soundStop." + juce::String (i));
     a.addArray (juce::StringArray { "soundStopAll", "freezeToggle", "looperRecPlay", "looperClear", "pushToTalk" });
     a.add ("recordToggle"); // wave 8 (INTERFACES.md §10)
+    a.add ("tapeStopToggle"); // wave 10 (INTERFACES.md §12)
     for (int i = 1; i <= kMomentarySlots; ++i) a.add ("momentary." + juce::String (i));
     return a;
 }
@@ -194,6 +195,7 @@ juce::String Hotkeys::actionLabel (const juce::String& action)
     if (action == "looperClear") return u8 ("ルーパーの消去");
     if (action == "pushToTalk") return u8 ("プッシュトゥトーク（押している間）");
     if (action == "recordToggle") return u8 ("録音の開始 / 停止");
+    if (action == "tapeStopToggle") return u8 ("テープストップの切替");
     if (action.startsWith ("momentary.")) return u8 ("押している間のエフェクト ") + n;
     return action;
 }

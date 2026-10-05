@@ -23,6 +23,7 @@ public:
     void mouseDrag (const juce::MouseEvent& e) override;
     void mouseUp (const juce::MouseEvent& e) override;
     bool keyPressed (const juce::KeyPress& k) override;
+    bool keyStateChanged (bool isKeyDown) override; // the menu key (wave10/ui)
     void focusGained (FocusChangeType) override { repaint(); }
     void focusLost (FocusChangeType) override { repaint(); }
 

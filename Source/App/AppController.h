@@ -13,6 +13,8 @@
 #include "App/Wave8Morph.h"
 #include "App/Wave9MicEq.h"
 #include "App/Wave9Stream.h"
+#include "App/Wave10Edit.h"
+#include "App/Wave10Viz.h"
 #include "Engine/AudioEngine.h"
 #include "Engine/CableProbe.h"
 #include "Engine/MonitorOutput.h"
@@ -26,6 +28,7 @@
 
 #include <juce_events/juce_events.h>
 
+#include <array>
 #include <functional>
 #include <memory>
 #include <vector>
@@ -276,6 +279,34 @@ public:
     bool isStreamRunning() const;
     juce::String getStreamError() const; // Japanese, "" = fine
 
+    // ================================================================ wave 10 (INTERFACES.md §12, owner request 2026-10-05)
+    // ---- 元に戻す / やり直し and A/B 聞き比べ (AppController_Edit.cpp, owner wave10/edit) ----
+    /** Every edit of the working preset (everything that goes through markModified) is one undo step; edits closer than
+        kUndoMergeMs together merge into one (a knob drag). At most kUndoSteps. Loading a preset clears the history. */
+    bool canUndo() const;
+    bool canRedo() const;
+    /** False + whyNot (Japanese) when there is nothing to undo / redo or the looper holds a recording a rebuild would lose (E-27). */
+    bool undo (juce::String& whyNot);
+    bool redo (juce::String& whyNot);
+    /** A/B: while on, the engine plays the saved version of the working preset (the library copy of the preset it came
+        from); getCurrentPreset() and the screen keep the edited one. Any edit, preset load, save or morph turns it off. */
+    bool canAbCompare() const;           // modified and the preset it came from still exists
+    bool setAbCompare (bool on, juce::String& whyNot);
+    bool isAbCompare() const;
+
+    // ---- スロットの右クリックメニュー (lead; the menus are wave10/ui) ----
+    /** A copy right after the slot (same params, mod, ON/OFF; a heavy copy over kMaxHeavyOn comes OFF). Refused with
+        whyNot at kMaxSlots or for one-per-chain types (freeze, looper, tapestop). Rebuilds the chain (E-27 is the UI's ask). */
+    bool duplicateSlot (int slot, juce::String& whyNot);
+    /** Every param back to its default and the level modulation off; ON/OFF and the IR file name stay. Live (no rebuild). */
+    void resetSlot (int slot);
+
+    // ---- 声の見える化 (AppController_Viz.cpp, owner wave10/viz) ----
+    /** The latest long-ish average spectra (dB, kSpectrumBands log-spaced bands kSpectrumLowHz..kSpectrumHighHz) of the
+        input (input tap 4, before any processing) and the output (output tap 2). Call it from a UI timer: the taps are
+        attached on the first call and detached ~1 s after the last. False while there is no sound data yet. */
+    bool pollSpectrum (std::array<float, kSpectrumBands>& inDb, std::array<float, kSpectrumBands>& outDb);
+
     // ================================================================ presets (F-05)
     PresetLibrary& getPresetLibrary() { return *library; }
     const Preset& getCurrentPreset() const { return current; } // working copy including edits
@@ -392,6 +423,13 @@ private:
     void tickStream();       void shutdownStream();       // AppController_Stream.cpp
     void openStream();                                    //   after the main devices opened (openDevicesIfReady)
     void closeStream();                                   //   closeDevices()
+    // wave 10 (INTERFACES.md §12)
+    void noteEdit();         // markModified(): records an undo step (or merges into the last), ends A/B    AppController_Edit.cpp
+    void editReset();        // loadPreset(): clears the history, ends A/B
+    void editBeforeSave();   // first thing in saveCurrentAsNew / overwriteCurrent: ends A/B (engine back on current), history stays
+    const Preset& playedPreset() const;                   //   what applyPresetToEngine / rebuildChain play: current, or the saved copy during A/B
+    float trimFor (const Preset& p) const;                //   getEffectiveTrimDb() for any preset that came from currentBaseId
+    void tickViz();          void shutdownViz();          // AppController_Viz.cpp
     // Detailed settings (INTERFACES.md §7). before == nullptr: apply everything (startup, device reopen).
     void applyAudioSettings (const Settings* before);     // AppController_Audio.cpp, owner wave4/audio
     void applyPlatformSettings (const Settings* before);  // AppController_Platform.cpp, owner wave4/platform
@@ -464,5 +502,7 @@ private:
     AutomationData automation;      // App/Wave8Automation.h, wave8/automation
     MicEqData micEq;                // App/Wave9MicEq.h, wave9/voice
     StreamData stream;              // App/Wave9Stream.h, wave9/stream
+    EditData edit;                  // App/Wave10Edit.h, wave10/edit
+    VizData viz;                    // App/Wave10Viz.h, wave10/viz
 };
 } // namespace koe

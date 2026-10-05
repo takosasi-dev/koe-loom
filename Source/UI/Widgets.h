@@ -25,6 +25,9 @@ inline juce::String ja (const char* utf8) { return juce::String::fromUTF8 (utf8)
     small variant (40 px) is used in slots. Double-click = default (F-14-5), Shift+drag = fine,
     arrow keys step, Enter or right-click = type a value. The hover tooltip (F-13-6) shows
     "label：value（min〜max、初期値 def）".
+    wave10/ui (INTERFACES.md §12.3): made while S-03 「つまみの形」 is 棒 (Theme::prefs().knobStyle == 1), it is a thin
+    bar instead (main/Common's stacked SliderRow look): the name left and the value right over the bar (big: the value
+    large), filled from 0 across 0, dragged sideways. Everything else (keys, editor, tooltip) is the same.
 */
 class Knob : public juce::Slider
 {
@@ -41,6 +44,11 @@ public:
     void setDiameter (int px) { diameter = px; repaint(); }
     int getDiameter() const { return diameter; }
     juce::String getValueText() const { return format ? format (getValue()) : juce::String (getValue()); }
+    /** The thin bar (fixed for the knob's life: a changed setting rebuilds the pages). */
+    bool isBar() const { return bar; }
+    /** Bar height with its text row (small 32; big: the large value, which follows the diameter, over the bar).
+        Lower bars draw the bar alone. */
+    int barHeight() const;
 
     void paint (juce::Graphics& g) override;
     void mouseDown (const juce::MouseEvent& e) override;
@@ -57,7 +65,10 @@ public:
 
 private:
     void valueChanged() override;
+    void paintBar (juce::Graphics& g);
+    float bigValueSize() const { return diameter >= Theme::knobBig ? Theme::fontXL : Theme::fontL; } // 84 px (narrow layout): 20
     Size size;
+    const bool bar;
     int diameter;
     juce::String label, unit;
     std::function<juce::String (double)> format;

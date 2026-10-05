@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "device-tape-stop",
+  "name": "テープストップ（ホットキーで止める）",
+  "chain": [
+    {
+      "type": "saturator",
+      "enabled": true,
+      "params": {
+        "mode": "tape",
+        "driveDb": 4,
+        "toneHz": 9000,
+        "mix": 1
+      }
+    },
+    {
+      "type": "tapestop",
+      "enabled": true,
+      "params": {
+        "stopMs": 1200,
+        "startMs": 400,
+        "curve": "smooth"
+      }
+    }
+  ],
+  "outputTrimDb": 0
+}

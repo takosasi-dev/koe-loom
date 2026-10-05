@@ -30,6 +30,8 @@ std::vector<Shape> shapesFor (Icon i)
         case Icon::folder:       return { { "M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z", false } };
         case Icon::warning:      return { { "M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z", false }, { "M12 9v4", false }, { "M12 17h.01", false } };
         case Icon::search:       return { { "M19 11a8 8 0 1 1-16 0a8 8 0 1 1 16 0z", false }, { "M21 21l-4.35-4.35", false } };
+        case Icon::undo:         return { { "M9 14L4 9l5-5", false }, { "M4 9h10.5a5.5 5.5 0 0 1 0 11H11", false } };
+        case Icon::redo:         return { { "M15 14l5-5-5-5", false }, { "M20 9H9.5a5.5 5.5 0 0 0 0 11H13", false } };
     }
     return {};
 }

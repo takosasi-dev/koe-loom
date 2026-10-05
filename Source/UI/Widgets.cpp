@@ -75,8 +75,9 @@ void drawText (juce::Graphics& g, const juce::String& text, juce::Rectangle<int>
 
 // =============================================================================================== Knob
 Knob::Knob (Size s)
-    : juce::Slider (juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::NoTextBox), size (s),
-      diameter (s == Size::big ? Theme::knobBig : Theme::knobSmall)
+    : juce::Slider (Theme::prefs().knobStyle == 1 ? juce::Slider::RotaryHorizontalDrag : juce::Slider::RotaryHorizontalVerticalDrag,
+                    juce::Slider::NoTextBox), // a bar drags sideways only, by the same sensitivity
+      size (s), bar (Theme::prefs().knobStyle == 1), diameter (s == Size::big ? Theme::knobBig : Theme::knobSmall)
 {
     setRotaryParameters (kArcStart, kArcEnd, true);
     setWantsKeyboardFocus (true);
@@ -185,8 +186,79 @@ void Knob::editValue()
     editor->onFocusLost = [finish] { finish (true); };
 }
 
+int Knob::barHeight() const
+{
+    // small: 16 text + 16 bar; big: the value row + a 20 px bar row
+    return size == Size::big ? juce::roundToInt (bigValueSize()) + Theme::space1 + Theme::space3 + Theme::space1 : Theme::space5;
+}
+
+void Knob::paintBar (juce::Graphics& g)
+{
+    const auto& p = P();
+    const bool big = size == Size::big;
+    constexpr float thumb = 14.0f;
+    auto r = getLocalBounds();
+    // the text row while there is room for it over the thumb: the name left, the value right (big: large, its unit after it)
+    const int textH = juce::jmin (big ? juce::roundToInt (bigValueSize()) + Theme::space1 : Theme::space3, r.getHeight() - int (thumb));
+    if (textH >= int (big ? Theme::fontS : Theme::fontXS))
+    {
+        auto row = r.removeFromTop (textH);
+        const auto paren = ja ("（");
+        auto fitLabel = [&paren] (const juce::String& s, float fontSize, bool bold, int width)
+        {
+            // "トーン（ローパス）" -> "トーン" when the whole name does not fit (as the slot cards do)
+            return textRunWidth (s, fontSize, bold, false) <= float (width) || ! s.contains (paren) ? s : s.upToFirstOccurrenceOf (paren, false, false).trimEnd();
+        };
+        if (big)
+        {
+            if (unit.isNotEmpty())
+            {
+                const int uw = int (std::ceil (textRunWidth (unit, Theme::fontXS, false, true))) + 2;
+                drawText (g, unit, row.removeFromRight (uw).withTrimmedTop (row.getHeight() / 3), Theme::fontXS, p.textSub, juce::Justification::centredRight, false, true);
+                row.removeFromRight (Theme::space1);
+            }
+            const auto v = getValueText();
+            drawText (g, v, row.removeFromRight (int (std::ceil (textRunWidth (v, bigValueSize(), true, true))) + 2), bigValueSize(), p.text,
+                      juce::Justification::centredRight, true, true);
+            row.removeFromRight (Theme::space2);
+            drawText (g, fitLabel (label, Theme::fontS, true, row.getWidth()), row, Theme::fontS, p.text, juce::Justification::centredLeft, true);
+        }
+        else
+        {
+            const auto v = getValueText() + (unit.isNotEmpty() ? " " + unit : juce::String());
+            drawText (g, v, row.removeFromRight (int (std::ceil (textRunWidth (v, Theme::fontXS, true, true))) + 2), Theme::fontXS, p.text,
+                      juce::Justification::centredRight, true, true);
+            row.removeFromRight (Theme::space1);
+            drawText (g, fitLabel (label, Theme::fontXS, false, row.getWidth()), row, Theme::fontXS, p.textSub);
+        }
+    }
+    // the bar: main/Common's LineSlider (6 px track, accent fill from 0 for ranges that cross 0, round thumb)
+    const auto area = r.toFloat().reduced (thumb * 0.5f, 0.0f);
+    const auto track = area.withSizeKeepingCentre (area.getWidth(), 6.0f);
+    g.setColour (isEnabled() ? p.border : p.trackOff);
+    g.fillRoundedRectangle (track, 3.0f);
+    const float pos = float (valueToProportionOfLength (getValue()));
+    const bool bipolar = getMinimum() < 0.0 && getMaximum() > 0.0;
+    const float origin = bipolar ? float (valueToProportionOfLength (0.0)) : 0.0f;
+    const float x0 = track.getX() + track.getWidth() * juce::jmin (pos, origin);
+    const float x1 = track.getX() + track.getWidth() * juce::jmax (pos, origin);
+    g.setColour (isEnabled() ? p.accent : p.textSub);
+    g.fillRoundedRectangle (juce::Rectangle<float> (x0, track.getY(), juce::jmax (x1 - x0, 0.0f), track.getHeight()), 3.0f);
+    const auto t = juce::Rectangle<float> (thumb, thumb).withCentre ({ track.getX() + track.getWidth() * pos, track.getCentreY() });
+    g.setColour (p.text);
+    g.fillEllipse (t);
+    g.setColour (p.bg);
+    g.drawEllipse (t, 2.0f);
+    if (hasKeyboardFocus (true) && editor == nullptr) drawFocusRing (g, t, thumb * 0.5f);
+}
+
 void Knob::paint (juce::Graphics& g)
 {
+    if (bar)
+    {
+        paintBar (g);
+        return;
+    }
     const auto& p = P();
     const bool big = size == Size::big;
     const float side = float (diameter);

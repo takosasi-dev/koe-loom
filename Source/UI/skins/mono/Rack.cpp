@@ -4,6 +4,7 @@
 #include "UI/skins/mono/MonoParts.h"
 
 #include "Effects/EffectRegistry.h"
+#include "UI/main/ChainStrip.h" // the slot menu (wave10/ui)
 
 #include <cmath>
 
@@ -205,9 +206,14 @@ public:
 
     void mouseEnter (const juce::MouseEvent&) override { repaint(); }
     void mouseExit (const juce::MouseEvent&) override { repaint(); }
-    void mouseDown (const juce::MouseEvent&) override { dragging = false; }
+    void mouseDown (const juce::MouseEvent& e) override
+    {
+        dragging = false;
+        if (e.mods.isPopupMenu()) mainui::showSlotMenu (c, nav, *this, index, true, true); // wave10/ui: the slot menu
+    }
     void mouseDrag (const juce::MouseEvent& e) override
     {
+        if (e.mods.isPopupMenu()) return;
         if (! dragging && e.getDistanceFromDragStart() > Theme::space1) dragging = true;
         if (dragging) rack.dragMove (*this, e);
     }
@@ -227,7 +233,14 @@ public:
         if (k == juce::KeyPress::deleteKey) { remove.triggerClick(); return true; }
         if (k.getModifiers().isCtrlDown() && k.isKeyCode (juce::KeyPress::upKey) && up.isEnabled()) { up.triggerClick(); return true; }
         if (k.getModifiers().isCtrlDown() && k.isKeyCode (juce::KeyPress::downKey) && down.isEnabled()) { down.triggerClick(); return true; }
+        if (mainui::isSlotMenuKey (k)) { mainui::showSlotMenu (c, nav, *this, index, true, false); return true; }
         return false;
+    }
+    bool keyStateChanged (bool isKeyDown) override
+    {
+        if (! isKeyDown || ! mainui::isSlotMenuKeyDown()) return false;
+        mainui::showSlotMenu (c, nav, *this, index, true, false);
+        return true;
     }
     void focusGained (FocusChangeType) override { repaint(); }
     void focusLost (FocusChangeType) override { repaint(); }

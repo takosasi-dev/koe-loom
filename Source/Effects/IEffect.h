@@ -52,8 +52,8 @@ struct EffectInfo
     }
 };
 
-/** Trigger actions for the Phase 5 momentary effects (freeze / looper). */
-enum class EffectTrigger { freezeToggle = 1, looperRecordPlay = 2, looperClear = 3 };
+/** Trigger actions for the Phase 5 momentary effects (freeze / looper) and wave 10's tapestop (INTERFACES.md §12). */
+enum class EffectTrigger { freezeToggle = 1, looperRecordPlay = 2, looperClear = 3, tapeStopToggle = 4 };
 
 /**
     Threading contract (enforced by the chain):

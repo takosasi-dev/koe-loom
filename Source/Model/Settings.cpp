@@ -98,6 +98,7 @@ Settings clampSettings (const Settings& in, juce::StringArray* clampedKeys)
     choice ("logKeepDays", s.logKeepDays, 1, 30, d.logKeepDays);
     choice ("animations", s.animations, 0, 2, d.animations);
     choice ("knobSensitivity", s.knobSensitivity, 0, 2, d.knobSensitivity);
+    choice ("knobStyle", s.knobStyle, 0, 1, d.knobStyle);
     choice ("layoutStyle", s.layoutStyle, 0, 2, d.layoutStyle);
     choice ("overlayCorner", s.overlayCorner, 0, 3, d.overlayCorner);
     if (s.meterFps != 30 && s.meterFps != 60) { s.meterFps = d.meterFps; changed.add ("meterFps"); }
@@ -248,6 +249,7 @@ Settings loadSettings (const juce::File& file, SettingsLoadResult& result)
     r.get ("tooltipDelayMs", s.tooltipDelayMs);
     r.get ("knobSensitivity", s.knobSensitivity);
     r.get ("knobWheel", s.knobWheel);
+    r.get ("knobStyle", s.knobStyle);
     r.get ("settingsShowDetails", s.settingsShowDetails);
     r.get ("autoUpdate", s.autoUpdate);
     r.get ("updateIncludePrerelease", s.updateIncludePrerelease);
@@ -399,6 +401,7 @@ bool saveSettings (const Settings& s, const juce::File& file)
     o->setProperty ("tooltipDelayMs", s.tooltipDelayMs);
     o->setProperty ("knobSensitivity", s.knobSensitivity);
     o->setProperty ("knobWheel", s.knobWheel);
+    o->setProperty ("knobStyle", s.knobStyle);
     o->setProperty ("settingsShowDetails", s.settingsShowDetails);
     o->setProperty ("autoUpdate", s.autoUpdate);
     o->setProperty ("updateIncludePrerelease", s.updateIncludePrerelease);

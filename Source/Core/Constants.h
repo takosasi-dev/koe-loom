@@ -39,6 +39,11 @@ inline constexpr float kModLowDb = -50.0f;              // 声の大きさで変
 inline constexpr float kModHighDb = -10.0f;             // .. and to 1
 inline constexpr float kModAttackMs = 10.0f;            // its envelope follower
 inline constexpr float kModReleaseMs = 200.0f;
+inline constexpr int kUndoSteps = 100;                  // 元に戻す: history length (INTERFACES.md §12)
+inline constexpr int kUndoMergeMs = 500;                // edits closer together than this are one step (a knob drag)
+inline constexpr int kSpectrumBands = 96;               // 声の見える化: log-spaced bands from kSpectrumLowHz to kSpectrumHighHz
+inline constexpr float kSpectrumLowHz = 50.0f;
+inline constexpr float kSpectrumHighHz = 16000.0f;
 
 // ---- soundboard (A-4, F-06) ----
 inline constexpr int kSoundboardSlots = 12;

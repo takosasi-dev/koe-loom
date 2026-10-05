@@ -157,7 +157,7 @@ public:
 
     // ---- wave 8 hooks (INTERFACES.md §10.1). Message thread sets, audio thread reads; nullptr = none. ----
     enum class TapPoint { input, output, sent };
-    static constexpr int kTapsPerPoint = 4;
+    static constexpr int kTapsPerPoint = 6; // wave 10 (INTERFACES.md §12): input 4 and output 2 are 声の見える化's
     /** input: the device input as it arrives (before the input source, gain and everything else; may hold non-finite
         samples). output: what goes to the virtual mic (after the limiter and fade-in, before setOutputMuted).
         sent (wave 9, INTERFACES.md §11): exactly what the virtual mic gets (after setOutputMuted). */

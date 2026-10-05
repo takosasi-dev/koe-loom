@@ -330,7 +330,7 @@ public:
         expectEquals (Hotkeys::describe (MOD_CONTROL, 0), juce::String());
         expect (Hotkeys::describe (0, 0x07).startsWith ("0x"));
 
-        beginTest ("Hotkeys::allActions: the spec's 39 ids in the header's order, soundStop.1..12 after sound.12 (owner 2026-10-03), then pushToTalk (wave 4), recordToggle and momentary.1..4 (wave 8)");
+        beginTest ("Hotkeys::allActions: the spec's 39 ids in the header's order, soundStop.1..12 after sound.12 (owner 2026-10-03), then pushToTalk (wave 4), recordToggle (wave 8), tapeStopToggle (wave 10) and momentary.1..4 (wave 8)");
         const auto actions = Hotkeys::allActions();
         juce::StringArray expected { "voiceToggle", "muteToggle", "favoriteNext", "favoritePrev" };
         for (int i = 1; i <= 9; ++i) expected.add ("favorite." + juce::String (i));
@@ -342,9 +342,10 @@ public:
         for (int i = 12; i >= 1; --i) expected.insert (afterSounds, "soundStop." + juce::String (i));
         expected.add ("pushToTalk");
         expected.add ("recordToggle");
+        expected.add ("tapeStopToggle"); // wave 10 (INTERFACES.md §12)
         for (int i = 1; i <= 4; ++i) expected.add ("momentary." + juce::String (i));
         expect (actions == expected, actions.joinIntoString (","));
-        expectEquals (actions.size(), 57);
+        expectEquals (actions.size(), 58);
         expectEquals (Hotkeys::actionLabel ("momentary.2"), u8 ("押している間のエフェクト 2"));
         expectEquals (Hotkeys::actionLabel ("pushToTalk"), u8 ("プッシュトゥトーク（押している間）"));
         expectEquals (Hotkeys::actionLabel ("soundStop.7"), u8 ("効果音 7 を止める"));

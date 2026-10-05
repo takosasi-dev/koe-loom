@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "device-metal-pipe",
+  "name": "金属の筒の中",
+  "chain": [
+    {
+      "type": "resonator",
+      "enabled": true,
+      "params": {
+        "note": "D",
+        "octave": 3,
+        "decayMs": 900,
+        "brightness": 0.6,
+        "mix": 0.6
+      }
+    }
+  ],
+  "outputTrimDb": 1.5
+}

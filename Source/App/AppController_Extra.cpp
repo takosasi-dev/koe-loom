@@ -66,7 +66,7 @@ bool AppController::randomizeCurrent (uint32_t seed, juce::String& whyNot)
     for (auto& info : allEffectInfos())
     {
         const std::string type (info.type);
-        if (type == "freeze" || type == "looper" || type == "convolution" || info.weight == EffectWeight::heavy || ! hasEffectFactory (type)) continue;
+        if (type == "freeze" || type == "looper" || type == "tapestop" || type == "convolution" || info.weight == EffectWeight::heavy || ! hasEffectFactory (type)) continue;
         pool.push_back (&info);
     }
     // 2..4 distinct types: a partial Fisher-Yates shuffle with our own generator (std::shuffle differs between libraries)

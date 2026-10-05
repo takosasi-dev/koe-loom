@@ -15,9 +15,9 @@ public:
 
     void runTest() override
     {
-        beginTest ("31 types (30 + convolution, INTERFACES.md §9), unique, koeloom_effects.md §2 counts");
+        beginTest ("35 types (30 + convolution, INTERFACES.md §9, + freqshift / octaver / resonator / tapestop, §12), unique, koeloom_effects.md §2 counts");
         const auto& all = allEffectInfos();
-        expectEquals (int (all.size()), 31);
+        expectEquals (int (all.size()), 35);
         std::set<std::string> types;
         int phase2 = 0, light = 0, medium = 0, heavy = 0;
         for (auto& i : all)
@@ -34,11 +34,12 @@ public:
                 if (p.isChoice()) expectEquals (int (p.max) + 1, int (p.choices.size()), juce::String (i.type) + "." + p.id);
             }
         }
-        expectEquals (int (types.size()), 31);
+        expectEquals (int (types.size()), 35);
         expectEquals (phase2, 24);
         // §4 had 17 / 10 / 3; freeze, granular, whisper -> light and vocoder -> medium follow the measured CPU (owner, 2026-10-03)
         // convolution (wave7/ir) -> medium: measured with a 10 s impulse response (ConvolutionTests)
-        expectEquals (light, 20);
+        // wave10/fx: the 4 new types are light (measured, NewFxTests)
+        expectEquals (light, 24);
         expectEquals (medium, 10);
         expectEquals (heavy, 1);
     }

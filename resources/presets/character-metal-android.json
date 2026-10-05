@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "id": "character-metal-android",
+  "name": "金属のアンドロイド",
+  "chain": [
+    {
+      "type": "freqshift",
+      "enabled": true,
+      "params": {
+        "shiftHz": 80,
+        "mix": 0.85
+      }
+    },
+    {
+      "type": "reverb",
+      "enabled": true,
+      "params": {
+        "type": "room",
+        "room": 0.25,
+        "damp": 0.5,
+        "mix": 0.12
+      }
+    }
+  ],
+  "outputTrimDb": 1
+}

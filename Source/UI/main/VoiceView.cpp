@@ -61,23 +61,59 @@ void drawDice (juce::Graphics& g, juce::Rectangle<float> area, juce::Colour ink)
 class ExtraButton : public juce::Button, private juce::Timer
 {
 public:
-    enum class Kind { compare, random };
-    ExtraButton (Kind k, AppController& ctl) : juce::Button (k == Kind::compare ? "compare" : "random"), kind (k), c (ctl)
+    // wave10/edit: undo / redo (icons) and ab (A/B: the saved voice vs the edited one, a toggle, unlike the held compare)
+    enum class Kind { compare, random, undo, redo, ab };
+    static const char* nameFor (Kind k)
+    {
+        const char* names[] = { "compare", "random", "undo", "redo", "ab" };
+        return names[int (k)];
+    }
+    ExtraButton (Kind k, AppController& ctl) : juce::Button (nameFor (k)), kind (k), c (ctl)
     {
         setWantsKeyboardFocus (true);
-        setComponentID (k == Kind::compare ? "voice.compare" : "voice.random");
-        setTitle (k == Kind::compare ? ja ("聞き比べ（押している間だけ元の声）") : ja ("おまかせ（ランダムな声を作る）"));
-        setTooltip (k == Kind::compare ? ja ("押している間だけ、変換しない元の声になります（スペースキーでも）。ボイチェン OFF のときは使えません")
-                                       : ja ("おまかせ：ピッチ・フォルマント・エフェクトをランダムに組んだ声を作ります（気に入ったら保存）"));
+        setComponentID ("voice." + juce::String (nameFor (k)));
+        switch (k)
+        {
+            case Kind::compare:
+                setTitle (ja ("聞き比べ（押している間だけ元の声）"));
+                setTooltip (ja ("押している間だけ、変換しない元の声になります（スペースキーでも）。ボイチェン OFF のときは使えません"));
+                break;
+            case Kind::random:
+                setTitle (ja ("おまかせ（ランダムな声を作る）"));
+                setTooltip (ja ("おまかせ：ピッチ・フォルマント・エフェクトをランダムに組んだ声を作ります（気に入ったら保存）"));
+                break;
+            case Kind::undo:
+                setTitle (ja ("元に戻す"));
+                setTooltip (ja ("元に戻す（Ctrl+Z）"));
+                break;
+            case Kind::redo:
+                setTitle (ja ("やり直し"));
+                setTooltip (ja ("やり直し（Ctrl+Y）"));
+                break;
+            case Kind::ab:
+                setTitle (ja ("A/B（保存してある声と、いじった後の声を切り替える）"));
+                setTooltip (ja ("A/B：保存してある声と、いじった後の声を切り替えて聞き比べます"));
+                break;
+        }
     }
     ~ExtraButton() override { setHeld (false); }
 
     int preferredWidth (int h) const
     {
+        if (kind == Kind::undo || kind == Kind::redo) return juce::jlimit (22, 26, h - 10);
         if (kind == Kind::random && ! showText) return h;
         const auto f = Theme::ui (fontSize, true);
+        if (kind == Kind::ab) return juce::jmax (textWidth (f, "A/B"), textWidth (f, ja ("保存版"))) + (Theme::space1 + 2) * 2;
         const int textW = kind == Kind::compare ? juce::jmax (textWidth (f, ja ("聞き比べ")), textWidth (f, ja ("元の声"))) : textWidth (f, ja ("おまかせ"));
-        return textW + 18 + 6 + Theme::space3 * 2 - 2;
+        return textW + 18 + 6 + (Theme::space2 + 2) * 2; // wave10/edit: was space3 a side, room for 元に戻す / やり直し / A/B
+    }
+    /** A/B only: the engine plays the saved version (pressed look, 「保存版」). */
+    void setAbOn (bool on)
+    {
+        if (abOn == on) return;
+        abOn = on;
+        setTitle (on ? ja ("A/B：いまは保存版の声（押すと、いじった後の声に戻ります）") : ja ("A/B（保存してある声と、いじった後の声を切り替える）"));
+        repaint();
     }
 
     /** Compare only: true sends setCompareHold (true) unless the button is disabled (voice changer OFF). */
@@ -113,7 +149,7 @@ public:
     bool keyPressed (const juce::KeyPress& k) override
     {
         if (! k.isKeyCode (juce::KeyPress::spaceKey)) return juce::Button::keyPressed (k);
-        if (kind == Kind::random) triggerClick();
+        if (kind != Kind::compare) triggerClick();
         else if (! held)
         {
             setHeld (true);
@@ -140,26 +176,32 @@ public:
     {
         const auto& p = P();
         const auto r = getLocalBounds().toFloat().reduced (1.0f);
-        const auto fill = held ? p.accent : (highlighted || down ? p.raised : juce::Colours::transparentBlack);
-        const auto ink = held ? p.onAccent : p.text;
+        const bool on = held || abOn;
+        const auto fill = on ? p.accent : (highlighted || down ? p.raised : juce::Colours::transparentBlack);
+        const auto ink = on ? p.onAccent : p.text;
         if (! fill.isTransparent())
         {
             g.setColour (fill);
             g.fillRoundedRectangle (r, Theme::radiusM);
         }
-        if (! held)
+        if (! on)
         {
             g.setColour (p.border);
             g.drawRoundedRectangle (r.reduced (0.75f), Theme::radiusM, Theme::borderWidth);
         }
-        const auto label = kind == Kind::random ? (showText ? ja ("おまかせ") : juce::String()) : (held ? ja ("元の声") : ja ("聞き比べ"));
+        juce::String label;
+        if (kind == Kind::random) label = showText ? ja ("おまかせ") : juce::String();
+        else if (kind == Kind::compare) label = held ? ja ("元の声") : ja ("聞き比べ");
+        else if (kind == Kind::ab) label = abOn ? ja ("保存版") : juce::String ("A/B");
         const auto f = Theme::ui (fontSize, true);
-        const float iconW = juce::jmin (18.0f, r.getHeight() - 8.0f), textW = label.isEmpty() ? 0.0f : float (textWidth (f, label));
-        float x = r.getCentreX() - (iconW + (textW > 0.0f ? 6.0f + textW : 0.0f)) * 0.5f;
+        const float iconW = kind == Kind::ab ? 0.0f : juce::jmin (18.0f, r.getHeight() - 8.0f), textW = label.isEmpty() ? 0.0f : float (textWidth (f, label));
+        const float gap = iconW > 0.0f && textW > 0.0f ? 6.0f : 0.0f;
+        float x = r.getCentreX() - (iconW + gap + textW) * 0.5f;
         const juce::Rectangle<float> iconArea (x, r.getCentreY() - iconW * 0.5f, iconW, iconW);
         if (kind == Kind::random) drawDice (g, iconArea, ink);
-        else drawIcon (g, Icon::mic, iconArea, ink, held ? 2.4f : 2.0f);
-        x += iconW + 6.0f;
+        else if (kind == Kind::compare) drawIcon (g, Icon::mic, iconArea, ink, held ? 2.4f : 2.0f);
+        else if (kind != Kind::ab) drawIcon (g, kind == Kind::undo ? Icon::undo : Icon::redo, iconArea, ink, 2.2f);
+        x += iconW + gap;
         if (textW > 0.0f)
         {
             g.setColour (ink);
@@ -175,7 +217,7 @@ public:
     }
 
     const Kind kind;
-    bool held = false, heldByKey = false, showText = true;
+    bool held = false, heldByKey = false, showText = true, abOn = false;
     float fontSize = Theme::fontS;
 
 private:
@@ -303,9 +345,9 @@ public:
     {
         auto r = getLocalBounds().reduced (compact ? Theme::space2 + Theme::space1 : Theme::space3 - 2, 0);
         const int bh = compact ? Theme::touchMin : Theme::buttonH;
-        labelArea = r.removeFromLeft (textWidth (Theme::ui (Theme::fontXS), ja ("プリセット")) + 2);
-        r.removeFromLeft (Theme::space2);
-        const int selW = compact ? 190 : 220;
+        // wave10/edit: no 「プリセット」 label (the selector names the preset) and a narrower narrow selector make room for
+        // 元に戻す / やり直し / A/B in VoiceExtras, so the favourites keep their full width (AC-60)
+        const int selW = compact ? 175 : 220;
         selector.setBounds (r.removeFromLeft (selW).withSizeKeepingCentre (selW, bh));
         r.removeFromLeft (Theme::space2);
         for (auto* b : { &list, &save, &dup })
@@ -324,7 +366,7 @@ public:
         r.removeFromRight (Theme::space2);
         dividerX = r.getX() + Theme::space1;
         r.removeFromLeft (Theme::space2 + 1 + Theme::space1);
-        starArea = r.removeFromLeft (compact ? 16 : 16 + Theme::space1 + textWidth (Theme::ui (Theme::fontXS), ja ("お気に入り")) + 2);
+        starArea = r.removeFromLeft (16); // wave10/edit: the star alone in both layouts (it was already so below 1000 px)
         r.removeFromLeft (Theme::space2);
         if (empty.isVisible()) empty.setBounds (r.removeFromLeft (juce::jmin (r.getWidth(), 240)));
         const int moreW = moreFavs.isVisible() ? moreFavs.preferredWidth() + Theme::space2 : 0;
@@ -344,17 +386,10 @@ public:
         const auto& p = P();
         g.setColour (p.surface);
         g.fillRoundedRectangle (getLocalBounds().toFloat(), Theme::radiusL);
-        drawText (g, ja ("プリセット"), labelArea, Theme::fontXS, p.textSub);
         g.setColour (p.border);
         const int dh = compact ? Theme::space4 : Theme::space4 + Theme::space1;
         g.fillRect (dividerX, (getHeight() - dh) / 2, 1, dh);
-        auto s = starArea;
-        drawIcon (g, Icon::starFilled, s.removeFromLeft (16).withSizeKeepingCentre (15, 15).toFloat(), p.accent);
-        if (! compact)
-        {
-            s.removeFromLeft (Theme::space1);
-            drawText (g, ja ("お気に入り"), s, Theme::fontXS, p.textSub);
-        }
+        drawIcon (g, Icon::starFilled, starArea.withSizeKeepingCentre (15, 15).toFloat(), p.accent);
     }
 
 private:
@@ -439,7 +474,7 @@ private:
     VoiceExtras extras;
     juce::Label empty;
     juce::String favSig;
-    juce::Rectangle<int> labelArea, starArea;
+    juce::Rectangle<int> starArea;
     int dividerX = 0;
 };
 
@@ -763,6 +798,19 @@ public:
         r.removeFromTop (compact ? Theme::space1 : Theme::space2);
         const int kw = compact ? kKnobNarrow : Theme::knobBig, kh = kw + int (Theme::fontS) + Theme::space2;
         hintArea = compact ? juce::Rectangle<int>() : r.removeFromBottom (Theme::space3);
+        if (pitch.isBar())
+        {
+            // wave10/ui: two full-width bars, each with its large value over it (the value size follows the diameter)
+            const int gap = compact ? Theme::space1 : Theme::space3;
+            pitch.setDiameter (kw);
+            formant.setDiameter (kw);
+            const int bh = juce::jmin (pitch.barHeight(), (r.getHeight() - gap) / 2);
+            showHint = ! compact && r.getHeight() >= 2 * pitch.barHeight() + gap;
+            const int y = r.getY() + juce::jmax (0, (r.getHeight() - 2 * bh - gap) / 2);
+            pitch.setBounds (r.getX(), y, r.getWidth(), bh);
+            formant.setBounds (r.getX(), y + bh + gap, r.getWidth(), bh);
+            return;
+        }
         showHint = ! compact && r.getHeight() >= kh;
         const int y = r.getY() + juce::jmax (0, (r.getHeight() - kh) / 2);
         const int cell = r.getWidth() / 2;
@@ -1370,7 +1418,8 @@ private:
 struct VoiceExtras::Impl : private juce::ChangeListener
 {
     Impl (AppController& ctl, Navigator& n)
-        : c (ctl), nav (n), compare (ExtraButton::Kind::compare, ctl), random (ExtraButton::Kind::random, ctl)
+        : c (ctl), nav (n), compare (ExtraButton::Kind::compare, ctl), random (ExtraButton::Kind::random, ctl),
+          undo (ExtraButton::Kind::undo, ctl), redo (ExtraButton::Kind::redo, ctl), ab (ExtraButton::Kind::ab, ctl)
     {
         random.onClick = [this]
         {
@@ -1379,6 +1428,10 @@ struct VoiceExtras::Impl : private juce::ChangeListener
                 nav.showToast (ja ("おまかせで声を作りました。気に入ったら「保存」で残せます。"));
             else nav.showToast (why);
         };
+        // wave10/edit: a refusal (nothing to undo, the looper's recording) shows as a toast
+        undo.onClick = [this] { juce::String why; if (! c.undo (why)) nav.showToast (why); };
+        redo.onClick = [this] { juce::String why; if (! c.redo (why)) nav.showToast (why); };
+        ab.onClick = [this] { juce::String why; if (! c.setAbCompare (! c.isAbCompare(), why)) nav.showToast (why); };
         c.addChangeListener (this);
         sync();
     }
@@ -1389,19 +1442,22 @@ struct VoiceExtras::Impl : private juce::ChangeListener
         compare.setEnabled (c.isVoiceChangerOn()); // a disabled button cannot start a hold
         if (! c.isVoiceChangerOn()) compare.setHeld (false);
         compare.syncFromController();
+        undo.setEnabled (c.canUndo());
+        redo.setEnabled (c.canRedo());
+        ab.setEnabled (c.isAbCompare() || c.canAbCompare()); // ON stays pressable, to go back
+        ab.setAbOn (c.isAbCompare());
     }
     void changeListenerCallback (juce::ChangeBroadcaster*) override { sync(); }
 
     AppController& c;
     Navigator& nav;
-    ExtraButton compare, random;
+    ExtraButton compare, random, undo, redo, ab;
     bool vertical = false;
 };
 
 VoiceExtras::VoiceExtras (AppController& c, Navigator& nav) : impl (std::make_unique<Impl> (c, nav))
 {
-    addAndMakeVisible (impl->compare);
-    addAndMakeVisible (impl->random);
+    for (auto* b : { &impl->undo, &impl->redo, &impl->ab, &impl->compare, &impl->random }) addAndMakeVisible (b);
 }
 
 VoiceExtras::~VoiceExtras() = default;
@@ -1410,16 +1466,19 @@ void VoiceExtras::setStyle (bool vertical, bool randomText, float fontSize)
 {
     impl->vertical = vertical;
     impl->random.showText = randomText;
-    impl->compare.fontSize = impl->random.fontSize = fontSize;
+    for (auto* b : { &impl->undo, &impl->redo, &impl->ab, &impl->compare, &impl->random }) b->fontSize = fontSize;
     resized();
     repaint();
 }
 
+// Horizontal: [元に戻す][やり直し] [A/B] [聞き比べ] [おまかせ]. Vertical (案 C wide, by the mute): 聞き比べ / おまかせ / a row of
+// [元に戻す][やり直し][A/B] in what is left of the height.
 int VoiceExtras::preferredWidth (int height) const
 {
     auto& i = *impl;
-    if (i.vertical) return juce::jmax (i.compare.preferredWidth (height), i.random.preferredWidth (height));
-    return i.compare.preferredWidth (height) + Theme::space2 + i.random.preferredWidth (height);
+    const int editW = 2 * i.undo.preferredWidth (height) + 2 + Theme::space2 + i.ab.preferredWidth (height);
+    if (i.vertical) return juce::jmax (i.compare.preferredWidth (height), i.random.preferredWidth (height), editW);
+    return editW + Theme::space2 + i.compare.preferredWidth (height) + Theme::space2 + i.random.preferredWidth (height);
 }
 
 void VoiceExtras::resized()
@@ -1428,12 +1487,29 @@ void VoiceExtras::resized()
     auto r = getLocalBounds();
     if (i.vertical)
     {
-        const int h = (r.getHeight() - Theme::space2) / 2;
+        // 聞き比べ / おまかせ keep a pressable height (Theme::touchMin); the row below takes what is left (24 px in 案 C's 96)
+        const int h = juce::jmax (Theme::touchMin, (r.getHeight() - 2 * Theme::space1) / 3);
         i.compare.setBounds (r.removeFromTop (h));
-        i.random.setBounds (r.removeFromBottom (h));
+        r.removeFromTop (Theme::space1);
+        i.random.setBounds (r.removeFromTop (h));
+        r.removeFromTop (Theme::space1);
+        auto row = r;
+        const int iw = i.undo.preferredWidth (row.getHeight() + 10); // square-ish
+        i.undo.setBounds (row.removeFromLeft (iw));
+        row.removeFromLeft (2);
+        i.redo.setBounds (row.removeFromLeft (iw));
+        row.removeFromLeft (Theme::space2);
+        i.ab.setBounds (row);
         return;
     }
-    i.random.setBounds (r.removeFromRight (juce::jmin (r.getWidth() / 2, i.random.preferredWidth (r.getHeight()))));
+    const int h = r.getHeight(), iw = i.undo.preferredWidth (h);
+    i.undo.setBounds (r.removeFromLeft (iw));
+    r.removeFromLeft (2); // a pair
+    i.redo.setBounds (r.removeFromLeft (iw));
+    r.removeFromLeft (Theme::space2);
+    i.ab.setBounds (r.removeFromLeft (i.ab.preferredWidth (h)));
+    r.removeFromLeft (Theme::space2);
+    i.random.setBounds (r.removeFromRight (juce::jmin (r.getWidth() / 2, i.random.preferredWidth (h))));
     r.removeFromRight (Theme::space2);
     i.compare.setBounds (r);
 }

@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "id": "character-kaiju",
+  "name": "地鳴りの怪獣",
+  "chain": [
+    {
+      "type": "octaver",
+      "enabled": true,
+      "params": {
+        "sub1": 0.9,
+        "sub2": 0.6,
+        "dry": 0.8,
+        "toneHz": 450
+      }
+    },
+    {
+      "type": "reverb",
+      "enabled": true,
+      "params": {
+        "type": "hall",
+        "room": 0.6,
+        "damp": 0.5,
+        "mix": 0.2
+      }
+    }
+  ],
+  "outputTrimDb": 0
+}

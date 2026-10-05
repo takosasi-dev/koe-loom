@@ -1,6 +1,7 @@
 #include "UI/main/ChainStrip.h"
 
 #include "Effects/EffectRegistry.h"
+#include "Platform/Hotkeys.h"
 
 #include <algorithm>
 #include <cmath>
@@ -41,8 +42,8 @@ std::vector<int> matchSlots (const juce::StringArray& before, const juce::String
 
 // =============================================================================================== SlotCard
 SlotCard::SlotCard (ChainStrip& s, AppController& ctl, Navigator& n, int i)
-    : index (i), strip (s), c (ctl), nav (n), left (ja ("左へ"), Icon::chevronLeft), right (ja ("右へ"), Icon::chevronRight),
-      remove (ja ("削除"), Icon::close)
+    : index (i), strip (s), c (ctl), nav (n), bars (Theme::prefs().knobStyle == 1), left (ja ("左へ"), Icon::chevronLeft),
+      right (ja ("右へ"), Icon::chevronRight), remove (ja ("削除"), Icon::close)
 {
     setWantsKeyboardFocus (true);
     setComponentID ("chain.slot." + juce::String (index));
@@ -148,6 +149,16 @@ void SlotCard::resized()
 
     r.removeFromTop (kHeaderRow + gap);
     r.removeFromBottom (gap);
+    if (bars)
+    {
+        // wave10/ui: the bars stacked full width, centred; a bar lower than its text row draws the bar alone (the short tier)
+        const int n = juce::jmax (1, knobs.size());
+        const int h = juce::jmin (Theme::space5, (r.getHeight() - (n - 1) * Theme::space1) / n);
+        const int top = r.getY() + juce::jmax (0, (r.getHeight() - n * h - (n - 1) * Theme::space1) / 2);
+        for (int k = 0; k < knobs.size(); ++k)
+            knobs[k]->setBounds (r.getX(), top + k * (h + Theme::space1), r.getWidth(), h);
+        return;
+    }
     // knobs (+ label + value) centred between the header and the ON/OFF row
     const int block = Theme::knobSmall + (tier() == Tier::full ? 2 : tier() == Tier::values ? 1 : 0) * kTextRow;
     const int top = r.getY() + juce::jmax (0, (r.getHeight() - block) / 2);
@@ -195,7 +206,7 @@ void SlotCard::paint (juce::Graphics& g)
 
     // knob labels and values (F-04-22), dropped first when the card is short
     const auto t = tier();
-    if (t != Tier::knobsOnly && info != nullptr)
+    if (t != Tier::knobsOnly && info != nullptr && ! bars) // bars draw their own
         for (int k = 0; k < knobs.size(); ++k)
         {
             const auto kb = knobs[k]->getBounds();
@@ -214,13 +225,15 @@ void SlotCard::paint (juce::Graphics& g)
     if (hasKeyboardFocus (false)) drawFocusRing (g, bounds, Theme::radiusM);
 }
 
-void SlotCard::mouseDown (const juce::MouseEvent&)
+void SlotCard::mouseDown (const juce::MouseEvent& e)
 {
     dragging = false;
+    if (e.mods.isPopupMenu()) showSlotMenu (c, nav, *this, index, false, true); // wave10/ui (a knob keeps its own: the value editor)
 }
 
 void SlotCard::mouseDrag (const juce::MouseEvent& e)
 {
+    if (e.mods.isPopupMenu()) return;
     if (! dragging && e.getDistanceFromDragStart() > Theme::space1) dragging = true;
     if (dragging) strip.dragMove (*this, e);
 }
@@ -250,8 +263,80 @@ bool SlotCard::keyPressed (const juce::KeyPress& k)
     }
     if (k.getModifiers().isCtrlDown() && k.isKeyCode (juce::KeyPress::leftKey) && left.isEnabled()) { left.triggerClick(); return true; }
     if (k.getModifiers().isCtrlDown() && k.isKeyCode (juce::KeyPress::rightKey) && right.isEnabled()) { right.triggerClick(); return true; }
+    if (isSlotMenuKey (k)) { showSlotMenu (c, nav, *this, index, false, false); return true; }
     return false;
 }
+
+bool SlotCard::keyStateChanged (bool isKeyDown)
+{
+    if (! isKeyDown || ! isSlotMenuKeyDown()) return false;
+    showSlotMenu (c, nav, *this, index, false, false);
+    return true;
+}
+
+// =============================================================================================== slot menu (wave10/ui)
+std::vector<SlotMenuItem> slotMenuItems (const AppController& c, int slot, bool vertical)
+{
+    const auto& chain = c.getChain();
+    if (slot < 0 || slot >= int (chain.size())) return {};
+    const auto& s = chain[size_t (slot)];
+    const bool once = isOnePerChain (s.type); // AppController::duplicateSlot refuses these
+    const int last = int (chain.size()) - 1;
+    return { { SlotAction::toggle, s.enabled ? ja ("OFF にする") : ja ("ON にする"), true },
+             { SlotAction::detail, ja ("詳細を開く"), true },
+             { SlotAction::duplicate, ja ("複製"), int (chain.size()) < kMaxSlots && ! once },
+             { SlotAction::reset, ja ("初期値に戻す"), findEffectInfo (s.type) != nullptr },
+             { SlotAction::moveBack, vertical ? ja ("上へ移動") : ja ("左へ移動"), slot > 0 },
+             { SlotAction::moveForward, vertical ? ja ("下へ移動") : ja ("右へ移動"), slot < last },
+             { SlotAction::remove, ja ("削除"), true } };
+}
+
+void runSlotAction (AppController& c, Navigator& nav, juce::Component& owner, int slot, SlotAction action)
+{
+    if (slot < 0 || slot >= int (c.getChain().size())) return;
+    juce::String why;
+    switch (action)
+    {
+        case SlotAction::toggle:
+            if (! c.setSlotEnabled (slot, ! c.getChain()[size_t (slot)].enabled, why)) nav.showToast (why);
+            break;
+        case SlotAction::detail: nav.showSlotDetail (slot); break;
+        case SlotAction::reset: c.resetSlot (slot); break;
+        case SlotAction::duplicate:
+            withLooperCheck (c, nav, owner, [&c, &nav, slot]
+            {
+                juce::String whyNot;
+                if (! c.duplicateSlot (slot, whyNot)) nav.showToast (whyNot);
+            });
+            break;
+        case SlotAction::moveBack: withLooperCheck (c, nav, owner, [&c, slot] { c.moveSlot (slot, slot - 1); }); break;
+        case SlotAction::moveForward: withLooperCheck (c, nav, owner, [&c, slot] { c.moveSlot (slot, slot + 1); }); break;
+        case SlotAction::remove: withLooperCheck (c, nav, owner, [&c, slot] { c.removeSlot (slot); }); break;
+    }
+}
+
+void showSlotMenu (AppController& c, Navigator& nav, juce::Component& owner, int slot, bool vertical, bool atMouse)
+{
+    juce::PopupMenu menu;
+    for (auto& item : slotMenuItems (c, slot, vertical))
+    {
+        if (item.action == SlotAction::duplicate || item.action == SlotAction::moveBack || item.action == SlotAction::remove) menu.addSeparator();
+        menu.addItem (int (item.action), item.text, item.enabled);
+    }
+    auto options = juce::PopupMenu::Options();
+    options = atMouse ? options.withMousePosition() : options.withTargetComponent (&owner);
+    menu.showMenuAsync (options, [&c, &nav, safe = juce::Component::SafePointer<juce::Component> (&owner), slot] (int chosen)
+    {
+        if (chosen > 0 && safe != nullptr) runSlotAction (c, nav, *safe, slot, SlotAction (chosen));
+    });
+}
+
+bool isSlotMenuKey (const juce::KeyPress& k)
+{
+    return k.getKeyCode() == juce::KeyPress::F10Key && k.getModifiers().isShiftDown() && ! k.getModifiers().isCtrlDown() && ! k.getModifiers().isAltDown();
+}
+
+bool isSlotMenuKeyDown() { return Hotkeys::isKeyDown (0x5D); } // VK_APPS
 
 // =============================================================================================== ChainStrip
 ChainStrip::ChainStrip (AppController& ctl, Navigator& n) : c (ctl), nav (n), add (ja ("エフェクトを追加"), true)

@@ -217,7 +217,7 @@ void runSoak (juce::UnitTest& ut, double totalSeconds, bool longRun)
     std::vector<juce::String> presetIds;
     for (auto& p : c.getPresetLibrary().all())
         if (p.builtin) presetIds.push_back (juce::String (p.id));
-    ut.expectEquals (int (presetIds.size()), 81);
+    ut.expectEquals (int (presetIds.size()), 85);
     juce::String why;
     for (size_t i = 0; i < presetIds.size(); i += 7) c.toggleFavorite (presetIds[i].toStdString(), why);
     std::vector<std::string> types;
