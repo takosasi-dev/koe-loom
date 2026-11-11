@@ -93,3 +93,9 @@ JUCE は、AGPLv3 と商用ライセンスのデュアルライセンスです�
 - 技術検証の作業フォルダ: [`phase0/`](phase0/)
 - 変更履歴: [CHANGELOG.md](CHANGELOG.md)
 - バージョンは `vMAJOR.MINOR.PATCH`。公開直後は `v0.x.x` とします。
+
+<!-- takosasi-dev line: the sign and the links follow https://github.com/takosasi-dev/takosasi-dev -->
+<p align="center">
+<a href="https://github.com/takosasi-dev"><img src="https://raw.githubusercontent.com/takosasi-dev/takosasi-dev/main/assets/stations/koe-loom.svg" width="640" alt="たこさし線の駅名標(作者のほかの制作物へ)"></a><br>
+<a href="https://takosasi-dev.github.io/takosasi-dev/line/?from=koe-loom&amp;go=prev">◀ 前の駅</a> ・ <a href="https://github.com/takosasi-dev">路線図</a> ・ <a href="https://takosasi-dev.github.io/takosasi-dev/line/?from=koe-loom&amp;go=next">次の駅 ▶</a>
+</p>
